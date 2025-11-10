@@ -46,7 +46,10 @@ namespace FarmacopilotAgent.Core.Models
 
         [JsonPropertyName("api_base_url")]
         public string ApiBaseUrl { get; set; } = "https://api.farmacopilot.com";
-    }
+
+        [JsonPropertyName("postgres_connection_encrypted")]
+        public string PostgresConnectionEncrypted { get; set; } = string.Empty;
+            }
 
     // Resto de modelos sin cambios
     public class ErpInfo
