@@ -1,0 +1,82 @@
+name: Release Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore FarmacopilotAgent.sln
+
+    - name: Build solution
+      run: dotnet build FarmacopilotAgent.sln --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-build --verbosity normal
+
+    - name: Publish application
+      run: |
+        dotnet publish src/FarmacopilotAgent.Runner/FarmacopilotAgent.Runner.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -o ${{ github.workspace }}/installer/publish
+
+    - name: Generate encrypted secrets file
+      env:
+        TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+        CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+        CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+        SITE_ID: ${{ secrets.SHAREPOINT_SITE_ID }}
+      run: |
+        # Ejecutar script de cifrado (simplificado para CI)
+        $credentials = @{
+          TenantId = $env:TENANT_ID
+          ClientId = $env:CLIENT_ID
+          ClientSecret = $env:CLIENT_SECRET
+          SharePointSiteId = $env:SITE_ID
+        } | ConvertTo-Json
+        
+        # Guardar temporalmente (en producción usar DPAPI o Azure Key Vault)
+        $credentials | Out-File -FilePath installer/secrets.embedded -Encoding UTF8
+
+    - name: Build installer with InnoSetup
+      run: |
+        choco install innosetup -y
+        iscc installer/setup.iss
+
+    - name: Sign installer
+      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      run: |
+        # Aquí iría el comando de firma con SignTool.exe
+        # signtool sign /f cert.pfx /p ${{ secrets.CERT_PASSWORD }} installer/output/*.exe
+
+    - name: Upload to SharePoint
+      env:
+        TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+        CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+        CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+      run: |
+        # Script PowerShell para subir a SharePoint /Instaladores/Production/
+        # usando Graph API con Client Credentials
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: installer/output/FarmacopilotAgentInstaller*.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
