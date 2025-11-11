@@ -1,0 +1,86 @@
+{
+  "version": "11.x",
+  "erp": "nixfarma",
+  "description": "Mapping para Nixfarma versión 11.x (SQL Server con nomenclatura nueva)",
+  "tables": {
+    "ventas": {
+      "source_table": "VentasLineas",
+      "columns": [
+        {
+          "source": "FechaVenta",
+          "target": "fecha",
+          "type": "datetime"
+        },
+        {
+          "source": "CodigoArticulo",
+          "target": "codigo_producto",
+          "type": "string"
+        },
+        {
+          "source": "Descripcion",
+          "target": "nombre_producto",
+          "type": "string"
+        },
+        {
+          "source": "Cantidad",
+          "target": "cantidad",
+          "type": "decimal"
+        },
+        {
+          "source": "PrecioUnitario",
+          "target": "precio_unitario",
+          "type": "decimal"
+        },
+        {
+          "source": "ImporteVenta",
+          "target": "importe_total",
+          "type": "decimal"
+        },
+        {
+          "source": "TipoVenta",
+          "target": "tipo_venta",
+          "type": "string"
+        },
+        {
+          "source": "NumeroReceta",
+          "target": "numero_receta",
+          "type": "string"
+        },
+        {
+          "source": "CodigoNacional",
+          "target": "codigo_nacional",
+          "type": "string"
+        }
+      ],
+      "incremental_column": "FechaVenta",
+      "query_template": "SELECT {columns} FROM {table} v INNER JOIN Articulos a ON v.CodigoArticulo = a.Codigo WHERE {incremental_column} > @LastExport"
+    },
+    "stock": {
+      "source_table": "Stock",
+      "columns": [
+        {
+          "source": "CodigoArticulo",
+          "target": "codigo_producto",
+          "type": "string"
+        },
+        {
+          "source": "StockActual",
+          "target": "stock_actual",
+          "type": "decimal"
+        },
+        {
+          "source": "StockMinimo",
+          "target": "stock_minimo",
+          "type": "decimal"
+        },
+        {
+          "source": "FechaActualizacion",
+          "target": "fecha_actualizacion",
+          "type": "datetime"
+        }
+      ],
+      "incremental_column": "FechaActualizacion",
+      "query_template": "SELECT {columns} FROM {table} WHERE {incremental_column} > @LastExport"
+    }
+  }
+}
