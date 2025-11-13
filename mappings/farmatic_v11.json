@@ -1,31 +1,158 @@
--- Exportación incremental de ventas para Farmatic v11.x
--- Base de datos: Oracle
--- Tabla principal: VENTAS_DETALLE
--- :lastExport: parámetro para extracción incremental (bind variable)
-
-SELECT 
-    v.FECHA_VENTA as fecha,
-    v.COD_ARTICULO as codigo_producto,
-    a.DESCRIPCION as nombre_producto,
-    v.CANTIDAD as cantidad,
-    v.PRECIO_UNITARIO as precio_unitario,
-    v.IMPORTE_TOTAL as importe_total,
-    v.TIPO_VENTA as tipo_venta,
-    NVL(v.NUM_RECETA, '') as numero_receta,
-    NVL(v.COD_NACIONAL, '') as codigo_nacional,
-    NVL(v.DESCUENTO, 0) as descuento,
-    NVL(v.IVA, 0) as iva,
-    v.ID_TICKET as id_ticket
-FROM VENTAS_DETALLE v
-INNER JOIN ARTICULOS a ON v.COD_ARTICULO = a.CODIGO
-WHERE v.FECHA_VENTA > :lastExport
-ORDER BY v.FECHA_VENTA ASC;
-
--- Notas:
--- 1. Oracle usa :lastExport para bind variables (no @lastExport como SQL Server)
--- 2. NVL() equivalente a ISNULL() en SQL Server
--- 3. FECHA_VENTA debe ser tipo DATE o TIMESTAMP
--- 4. Para primera exportación (full), pasar fecha antigua: TO_DATE('1900-01-01', 'YYYY-MM-DD')
-
--- Query de ejemplo para testing (últimos 10 registros):
--- SELECT * FROM VENTAS_DETALLE ORDER BY FECHA_VENTA DESC FETCH FIRST 10 ROWS ONLY;
+{
+  "version": "11.x",
+  "erp": "farmatic",
+  "description": "Mapping para Farmatic versión 11.x (Oracle Database)",
+  "database_type": "oracle",
+  "tables": {
+    "ventas": {
+      "source_table": "VENTAS_DETALLE",
+      "columns": [
+        {
+          "source": "FECHA_VENTA",
+          "target": "fecha",
+          "type": "date"
+        },
+        {
+          "source": "COD_ARTICULO",
+          "target": "codigo_producto",
+          "type": "varchar2"
+        },
+        {
+          "source": "DESCRIPCION",
+          "target": "nombre_producto",
+          "type": "varchar2",
+          "from_join": "ARTICULOS"
+        },
+        {
+          "source": "CANTIDAD",
+          "target": "cantidad",
+          "type": "number"
+        },
+        {
+          "source": "PRECIO_UNITARIO",
+          "target": "precio_unitario",
+          "type": "number"
+        },
+        {
+          "source": "IMPORTE_TOTAL",
+          "target": "importe_total",
+          "type": "number"
+        },
+        {
+          "source": "TIPO_VENTA",
+          "target": "tipo_venta",
+          "type": "varchar2"
+        },
+        {
+          "source": "NUM_RECETA",
+          "target": "numero_receta",
+          "type": "varchar2"
+        },
+        {
+          "source": "COD_NACIONAL",
+          "target": "codigo_nacional",
+          "type": "varchar2"
+        },
+        {
+          "source": "DESCUENTO",
+          "target": "descuento",
+          "type": "number"
+        },
+        {
+          "source": "IVA",
+          "target": "iva",
+          "type": "number"
+        },
+        {
+          "source": "ID_TICKET",
+          "target": "id_ticket",
+          "type": "varchar2"
+        }
+      ],
+      "incremental_column": "FECHA_VENTA",
+      "joins": [
+        {
+          "table": "ARTICULOS",
+          "alias": "a",
+          "on": "v.COD_ARTICULO = a.CODIGO",
+          "type": "INNER"
+        }
+      ],
+      "query_template": "SELECT {columns} FROM {table} v INNER JOIN ARTICULOS a ON v.COD_ARTICULO = a.CODIGO WHERE {incremental_column} > :lastExport ORDER BY {incremental_column} ASC"
+    },
+    "stock": {
+      "source_table": "STOCK_ACTUAL",
+      "columns": [
+        {
+          "source": "COD_ARTICULO",
+          "target": "codigo_producto",
+          "type": "varchar2"
+        },
+        {
+          "source": "STOCK_FISICO",
+          "target": "stock_actual",
+          "type": "number"
+        },
+        {
+          "source": "STOCK_MINIMO",
+          "target": "stock_minimo",
+          "type": "number"
+        },
+        {
+          "source": "FECHA_ACTUALIZACION",
+          "target": "fecha_actualizacion",
+          "type": "date"
+        }
+      ],
+      "incremental_column": "FECHA_ACTUALIZACION",
+      "query_template": "SELECT {columns} FROM {table} WHERE {incremental_column} > :lastExport ORDER BY {incremental_column} ASC"
+    },
+    "compras": {
+      "source_table": "COMPRAS_DETALLE",
+      "columns": [
+        {
+          "source": "FECHA_COMPRA",
+          "target": "fecha",
+          "type": "date"
+        },
+        {
+          "source": "COD_ARTICULO",
+          "target": "codigo_producto",
+          "type": "varchar2"
+        },
+        {
+          "source": "CANTIDAD",
+          "target": "cantidad",
+          "type": "number"
+        },
+        {
+          "source": "PRECIO_COSTE",
+          "target": "precio_coste",
+          "type": "number"
+        },
+        {
+          "source": "COD_PROVEEDOR",
+          "target": "codigo_proveedor",
+          "type": "varchar2"
+        },
+        {
+          "source": "NUM_ALBARAN",
+          "target": "numero_albaran",
+          "type": "varchar2"
+        }
+      ],
+      "incremental_column": "FECHA_COMPRA",
+      "query_template": "SELECT {columns} FROM {table} WHERE {incremental_column} > :lastExport ORDER BY {incremental_column} ASC"
+    }
+  },
+  "notes": {
+    "connection_string_format": "Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=FARMATIC)));User Id=FARMACIA;Password=password;",
+    "tns_names_location": "C:\\oracle\\product\\11.2.0\\client_1\\network\\admin\\tnsnames.ora",
+    "common_issues": [
+      "TNS names no configurado correctamente",
+      "Oracle Client no instalado",
+      "Permisos insuficientes en tablas",
+      "Nomenclatura de tablas puede variar entre instalaciones"
+    ]
+  }
+}
