@@ -47,8 +47,11 @@ namespace FarmacopilotAgent.Runner
                     Log.Error("No se pudo cargar la configuración");
                     return 1;
                 }
+
+                Log.Information("Configuración cargada: FarmaciaID={FarmaciaId}, ERP={ErpType} v{Version}",
+                    config.FarmaciaId, config.ErpType, config.ErpVersion);
             
-                // ✅ NUEVO: Verificar estado del cliente desde PostgreSQL
+                // ✅ Verificar estado del cliente desde PostgreSQL
                 var postgresConnection = configManager.GetDecryptedPostgresConnection(config);
                 var statusChecker = new PostgresStatusChecker(postgresConnection, Log.Logger);
                 var clientStatus = await statusChecker.GetClientStatusAsync(config.FarmaciaId);
@@ -71,27 +74,55 @@ namespace FarmacopilotAgent.Runner
             
                 Log.Information("Cliente activo. Procediendo con exportación...");
             
-                // Realizar exportación (código existente sin cambios)
+                // Realizar exportación
                 var lastExportManager = new LastExportManager(BasePath, Log.Logger);
                 var lastExportTs = await lastExportManager.GetLastExportTimestampAsync();
             
                 var connectionString = configManager.GetDecryptedConnectionString(config);
                 var outputPath = Path.Combine(BasePath, "staging");
             
-                IExporter exporter = config.ErpType.ToLower() switch
+                // ✅ NUEVO: Soporte para ambos ERPs
+                IExporter exporter;
+                
+                switch (config.ErpType.ToLower())
                 {
-                    "nixfarma" => new NixfarmaExporter(connectionString, outputPath, config.FarmaciaId, Log.Logger),
-                    "farmatic" => throw new NotImplementedException("FarmaticExporter pendiente Sprint 2"),
-                    _ => throw new InvalidOperationException($"ERP no soportado: {config.ErpType}")
-                };
-            
+                    case "nixfarma":
+                        Log.Information("Inicializando exportador Nixfarma...");
+                        exporter = new NixfarmaExporter(connectionString, outputPath, config.FarmaciaId, Log.Logger);
+                        break;
+                        
+                    case "farmatic":
+                        Log.Information("Inicializando exportador Farmatic...");
+                        exporter = new FarmaticExporter(connectionString, outputPath, config.FarmaciaId, Log.Logger);
+                        break;
+                        
+                    default:
+                        Log.Error("ERP no soportado: {ErpType}", config.ErpType);
+                        throw new InvalidOperationException($"ERP no soportado: {config.ErpType}");
+                }
+
+                // Probar conexión antes de exportar
+                Log.Information("Verificando conexión a base de datos...");
+                var connectionOk = await exporter.TestConnectionAsync(connectionString);
+                
+                if (!connectionOk)
+                {
+                    Log.Error("No se pudo conectar a la base de datos");
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "connection_failed");
+                    return 1;
+                }
+
+                Log.Information("Conexión a base de datos verificada correctamente");
+
+                // Realizar exportación
                 var exportResult = await exporter.ExportDataAsync(lastExportTs);
             
                 if (exportResult.Success)
                 {
-                    Log.Information("Exportación exitosa: {File}", exportResult.FilePath);
+                    Log.Information("Exportación exitosa: {File}, {Rows} registros", 
+                        Path.GetFileName(exportResult.FilePath), exportResult.RowsExported);
             
-                    // Subir a SharePoint (código existente)
+                    // Subir a SharePoint
                     var credentialsProvider = new GraphCredentialsProvider(BasePath, Log.Logger);
                     var graphCredentials = credentialsProvider.GetCredentials();
             
@@ -117,8 +148,10 @@ namespace FarmacopilotAgent.Runner
             
                         await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, true);
             
-                        // ✅ NUEVO: Actualizar última actividad en PostgreSQL
+                        // Actualizar última actividad en PostgreSQL
                         await statusChecker.UpdateLastActivityAsync(config.FarmaciaId);
+
+                        Log.Information("Proceso completado exitosamente");
                     }
                     else
                     {
@@ -147,4 +180,3 @@ namespace FarmacopilotAgent.Runner
         }
     }
 }
-
