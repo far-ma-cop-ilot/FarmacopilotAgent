@@ -1,0 +1,74 @@
+{
+  "farmacia_id": "FAR2025001",
+  "erp_type": "nixfarma",
+  "erp_version": "9.1.8.20",
+  "db_type": "oracle",
+  "db_connection_encrypted": "ENCRYPTED_DATA_SOURCE=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=NIXFARMA)));User Id=usuario;Password=password;",
+  "sharepoint_site_id": "b!abc123...",
+  "tables_to_export": [
+    {
+      "table_name": "AH_VENTAS",
+      "incremental_column": "FECHA",
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AH_VENTA_LINEAS",
+      "incremental_column": "FECHA",
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AB_ARTICULOS_FICHA_E",
+      "incremental_column": null,
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AB_LABORATORIOS",
+      "incremental_column": null,
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AB_FAMILIAS",
+      "incremental_column": null,
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AD_PROVEEDORES",
+      "incremental_column": null,
+      "enabled": true,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AD_PED_DEV",
+      "incremental_column": "FECHA",
+      "enabled": false,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AE_ENTIDADES",
+      "incremental_column": null,
+      "enabled": false,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AE_TIPOS",
+      "incremental_column": null,
+      "enabled": false,
+      "last_export_ts": null
+    },
+    {
+      "table_name": "AB_DOM_VALOR_BD",
+      "incremental_column": null,
+      "enabled": false,
+      "last_export_ts": null
+    }
+  ],
+  "export_schedule": "03:00",
+  "last_install_ts": "2025-01-17T21:34:00Z",
+  "agent_version": "1.0.0",
+  "postgres_connection_encrypted": "ENCRYPTED_Host=db.farmacopilot.com;Port=5432;Database=farmacopilot_prod;Username=agent_user;Password=secure_password;"
+}
