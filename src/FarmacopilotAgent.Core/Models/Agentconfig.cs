@@ -3,28 +3,59 @@ using System.Text.Json.Serialization;
 
 namespace FarmacopilotAgent.Core.Models
 {
+    namespace FarmacopilotAgent.Core.Models
+{
     public class AgentConfig
     {
         [JsonPropertyName("farmacia_id")]
         public string FarmaciaId { get; set; } = string.Empty;
 
         [JsonPropertyName("erp_type")]
-        public string ErpType { get; set; } = string.Empty;
+        public string ErpType { get; set; } = string.Empty; // "nixfarma" o "farmatic"
 
         [JsonPropertyName("erp_version")]
         public string ErpVersion { get; set; } = string.Empty;
 
+        [JsonPropertyName("db_type")]
+        public string DbType { get; set; } = string.Empty; // "oracle" o "sqlserver"
+
         [JsonPropertyName("db_connection_encrypted")]
         public string DbConnectionEncrypted { get; set; } = string.Empty;
 
-        // ❌ ELIMINADO: drive_id, sharepoint_folder (ya no se usan)
-        
-        // ✅ NUEVO: Credenciales Graph cifradas (pre-configuradas)
-        [JsonPropertyName("graph_tenant_id")]
-        public string GraphTenantId { get; set; } = string.Empty;
+        [JsonPropertyName("sharepoint_site_id")]
+        public string SharePointSiteId { get; set; } = string.Empty; // Del instalador
 
-        [JsonPropertyName("graph_client_id_encrypted")]
-        public string GraphClientIdEncrypted { get; set; } = string.Empty;
+        [JsonPropertyName("tables_to_export")]
+        public List<TableExportConfig> TablesToExport { get; set; } = new();
+
+        [JsonPropertyName("export_schedule")]
+        public string ExportSchedule { get; set; } = "03:00";
+
+        [JsonPropertyName("last_install_ts")]
+        public DateTime LastInstallTimestamp { get; set; } = DateTime.UtcNow;
+
+        [JsonPropertyName("agent_version")]
+        public string AgentVersion { get; set; } = "1.0.0";
+
+        [JsonPropertyName("postgres_connection_encrypted")]
+        public string PostgresConnectionEncrypted { get; set; } = string.Empty;
+    }
+
+    public class TableExportConfig
+    {
+        [JsonPropertyName("table_name")]
+        public string TableName { get; set; } = string.Empty;
+
+        [JsonPropertyName("incremental_column")]
+        public string? IncrementalColumn { get; set; } // null = full export
+
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = true;
+
+        [JsonPropertyName("last_export_ts")]
+        public DateTime? LastExportTimestamp { get; set; }
+    }
+}
 
         [JsonPropertyName("graph_client_secret_encrypted")]
         public string GraphClientSecretEncrypted { get; set; } = string.Empty;
