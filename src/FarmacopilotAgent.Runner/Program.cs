@@ -81,24 +81,121 @@ namespace FarmacopilotAgent.Runner
                 var connectionString = configManager.GetDecryptedConnectionString(config);
                 var outputPath = Path.Combine(BasePath, "staging");
             
-                // ✅ NUEVO: Soporte para ambos ERPs
-                IExporter exporter;
+                // Crear conexión según tipo de BD (corregido: Nixfarma=Oracle, Farmatic=SQLServer)
+                DbConnection connection;
                 
-                switch (config.ErpType.ToLower())
+                if (config.ErpType.ToLower() == "nixfarma")
                 {
-                    case "nixfarma":
-                        Log.Information("Inicializando exportador Nixfarma...");
-                        exporter = new NixfarmaExporter(connectionString, outputPath, config.FarmaciaId, Log.Logger);
-                        break;
-                        
-                    case "farmatic":
-                        Log.Information("Inicializando exportador Farmatic...");
-                        exporter = new FarmaticExporter(connectionString, outputPath, config.FarmaciaId, Log.Logger);
-                        break;
-                        
-                    default:
-                        Log.Error("ERP no soportado: {ErpType}", config.ErpType);
-                        throw new InvalidOperationException($"ERP no soportado: {config.ErpType}");
+                    Log.Information("Inicializando conexión Oracle (Nixfarma)...");
+                    connection = new OracleConnection(connectionString);
+                }
+                else if (config.ErpType.ToLower() == "farmatic")
+                {
+                    Log.Information("Inicializando conexión SQL Server (Farmatic)...");
+                    connection = new SqlConnection(connectionString);
+                }
+                else
+                {
+                    Log.Error("ERP no soportado: {ErpType}", config.ErpType);
+                    throw new InvalidOperationException($"ERP no soportado: {config.ErpType}");
+                }
+                
+                await connection.OpenAsync();
+                
+                // Crear exportador RAW genérico
+                var exporter = new RawExporter(
+                    connection, 
+                    outputPath, 
+                    config.FarmaciaId, 
+                    Log.Logger
+                );
+                
+                // Probar conexión
+                Log.Information("Verificando conexión a base de datos...");
+                var connectionOk = await exporter.TestConnectionAsync(connectionString);
+                
+                if (!connectionOk)
+                {
+                    Log.Error("No se pudo conectar a la base de datos");
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "connection_failed");
+                    return 1;
+                }
+                
+                Log.Information("Conexión verificada correctamente");
+                
+                // Cargar credenciales Graph
+                var credentialsProvider = new GraphCredentialsProvider(BasePath, Log.Logger);
+                var graphCredentials = credentialsProvider.GetCredentials();
+                
+                var uploader = new SharePointGraphUploader(
+                    config.FarmaciaId,
+                    graphCredentials,
+                    Log.Logger
+                );
+                
+                // Exportar cada tabla configurada
+                var allSuccess = true;
+                foreach (var tableConfig in config.TablesToExport.Where(t => t.Enabled))
+                {
+                    Log.Information("Exportando tabla: {Table}", tableConfig.TableName);
+                
+                    var exportResult = await exporter.ExportTableRawAsync(
+                        tableConfig.TableName,
+                        tableConfig.IncrementalColumn,
+                        tableConfig.LastExportTimestamp
+                    );
+                
+                    if (exportResult.Success)
+                    {
+                        Log.Information("Exportación exitosa: {File}, {Rows} registros",
+                            Path.GetFileName(exportResult.FilePath), exportResult.RowsExported);
+                
+                        // Subir a SharePoint
+                        var uploadSuccess = await uploader.UploadFileAsync(
+                            exportResult.FilePath,
+                            $"/Clients/{config.FarmaciaId}/Raw/"
+                        );
+                
+                        if (uploadSuccess)
+                        {
+                            Log.Information("Archivo subido correctamente a SharePoint");
+                
+                            await uploader.ValidateUploadAsync(
+                                $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
+                                exportResult.Sha256Hash
+                            );
+                
+                            // Actualizar timestamp de última exportación para esta tabla
+                            tableConfig.LastExportTimestamp = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            Log.Error("Error al subir archivo de tabla {Table}", tableConfig.TableName);
+                            allSuccess = false;
+                        }
+                    }
+                    else
+                    {
+                        Log.Error("Error en exportación de tabla {Table}: {Error}",
+                            tableConfig.TableName, exportResult.ErrorDetails);
+                        allSuccess = false;
+                    }
+                }
+                
+                // Guardar config actualizado con nuevos timestamps
+                await configManager.SaveConfigAsync(config);
+                
+                // Actualizar estado global
+                if (allSuccess)
+                {
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, true);
+                    await statusChecker.UpdateLastActivityAsync(config.FarmaciaId);
+                    Log.Information("Todas las exportaciones completadas exitosamente");
+                }
+                else
+                {
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "partial_export_failed");
+                    Log.Warning("Algunas exportaciones fallaron");
                 }
 
                 // Probar conexión antes de exportar
