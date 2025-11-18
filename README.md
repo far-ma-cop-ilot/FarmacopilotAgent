@@ -4,9 +4,14 @@ Agente local de extracción de datos para ERPs de farmacia (Nixfarma y Farmatic)
 
 ## 🎯 Características Sprint 1
 
+## 🎯 Características Sprint 1
+
 - ✅ Detección automática de ERP instalado (Nixfarma/Farmatic)
-- ✅ Conexión segura a base de datos local
-- ✅ Extracción incremental de datos (ventas, stock)
+- ✅ Conexión segura a base de datos local:
+  - **Nixfarma → Oracle 11g** (no SQL Server como se asumió inicialmente)
+  - **Farmatic → SQL Server 2019** (no Oracle como se asumió inicialmente)
+- ✅ Extracción RAW completa (SELECT *) para transformación en Fabric
+- ✅ Sin mappings en el agente (transformaciones en lakehouse)
 - ✅ Cifrado de credenciales con Windows DPAPI
 - ✅ Subida automática a SharePoint con Microsoft Graph API
 - ✅ Validación de estado del cliente contra PostgreSQL
