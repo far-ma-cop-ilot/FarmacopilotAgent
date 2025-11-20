@@ -1,15 +1,18 @@
 using System;
+using System.Data.Common;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Data.SqlClient;
+using Oracle.ManagedDataAccess.Client;
 using Serilog;
 using Serilog.Events;
 using FarmacopilotAgent.Core.Utils;
-using FarmacopilotAgent.Core.Http;
 using FarmacopilotAgent.Core.Security;
+using FarmacopilotAgent.Core.Database;
 using FarmacopilotAgent.Detection;
 using FarmacopilotAgent.Exporters;
 using FarmacopilotAgent.Uploaders;
-using FarmacopilotAgent.Core.Database;
 
 namespace FarmacopilotAgent.Runner
 {
@@ -51,14 +54,33 @@ namespace FarmacopilotAgent.Runner
                 Log.Information("Configuración cargada: FarmaciaID={FarmaciaId}, ERP={ErpType} v{Version}",
                     config.FarmaciaId, config.ErpType, config.ErpVersion);
             
-                // ✅ Verificar estado del cliente desde PostgreSQL
+                // Verificar estado del cliente desde PostgreSQL
                 var postgresConnection = configManager.GetDecryptedPostgresConnection(config);
                 var statusChecker = new PostgresStatusChecker(postgresConnection, Log.Logger);
-                var clientStatus = await statusChecker.GetClientStatusAsync(config.FarmaciaId);
-            
+                
+                ClientStatus? clientStatus = null;
+                int retryCount = 0;
+                const int maxRetries = 3;
+                
+                while (retryCount < maxRetries && clientStatus == null)
+                {
+                    clientStatus = await statusChecker.GetClientStatusAsync(config.FarmaciaId);
+                    
+                    if (clientStatus == null)
+                    {
+                        retryCount++;
+                        if (retryCount < maxRetries)
+                        {
+                            Log.Warning("Intento {Retry}/{Max} de verificar estado del cliente falló. Reintentando en 5s...", 
+                                retryCount, maxRetries);
+                            await Task.Delay(5000);
+                        }
+                    }
+                }
+                
                 if (clientStatus == null)
                 {
-                    Log.Error("No se pudo verificar estado del cliente. Abortando ejecución.");
+                    Log.Error("No se pudo verificar estado del cliente después de {Retries} intentos. Abortando ejecución.", maxRetries);
                     return 1;
                 }
             
@@ -74,24 +96,23 @@ namespace FarmacopilotAgent.Runner
             
                 Log.Information("Cliente activo. Procediendo con exportación...");
             
-                // Realizar exportación
+                // Obtener última exportación
                 var lastExportManager = new LastExportManager(BasePath, Log.Logger);
-                var lastExportTs = await lastExportManager.GetLastExportTimestampAsync();
-            
+                
+                // Preparar conexión a base de datos según tipo de ERP
                 var connectionString = configManager.GetDecryptedConnectionString(config);
                 var outputPath = Path.Combine(BasePath, "staging");
-            
-                // Crear conexión según tipo de BD (corregido: Nixfarma=Oracle, Farmatic=SQLServer)
+                
                 DbConnection connection;
                 
-                if (config.ErpType.ToLower() == "nixfarma")
+                if (config.ErpType.Equals("nixfarma", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Information("Inicializando conexión Oracle (Nixfarma)...");
+                    Log.Information("Inicializando conexión Oracle 11g (Nixfarma)...");
                     connection = new OracleConnection(connectionString);
                 }
-                else if (config.ErpType.ToLower() == "farmatic")
+                else if (config.ErpType.Equals("farmatic", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Information("Inicializando conexión SQL Server (Farmatic)...");
+                    Log.Information("Inicializando conexión SQL Server 2019 (Farmatic)...");
                     connection = new SqlConnection(connectionString);
                 }
                 else
@@ -101,6 +122,7 @@ namespace FarmacopilotAgent.Runner
                 }
                 
                 await connection.OpenAsync();
+                Log.Information("Conexión a base de datos establecida correctamente");
                 
                 // Crear exportador RAW genérico
                 var exporter = new RawExporter(
@@ -111,7 +133,7 @@ namespace FarmacopilotAgent.Runner
                 );
                 
                 // Probar conexión
-                Log.Information("Verificando conexión a base de datos...");
+                Log.Information("Verificando conectividad a base de datos...");
                 var connectionOk = await exporter.TestConnectionAsync(connectionString);
                 
                 if (!connectionOk)
@@ -123,7 +145,7 @@ namespace FarmacopilotAgent.Runner
                 
                 Log.Information("Conexión verificada correctamente");
                 
-                // Cargar credenciales Graph
+                // Cargar credenciales Graph API
                 var credentialsProvider = new GraphCredentialsProvider(BasePath, Log.Logger);
                 var graphCredentials = credentialsProvider.GetCredentials();
                 
@@ -133,8 +155,10 @@ namespace FarmacopilotAgent.Runner
                     Log.Logger
                 );
                 
-                // Exportar cada tabla configurada
+                // Exportar cada tabla configurada (estrategia RAW: SELECT * sin transformaciones)
                 var allSuccess = true;
+                var totalRowsExported = 0;
+                
                 foreach (var tableConfig in config.TablesToExport.Where(t => t.Enabled))
                 {
                     Log.Information("Exportando tabla: {Table}", tableConfig.TableName);
@@ -149,6 +173,8 @@ namespace FarmacopilotAgent.Runner
                     {
                         Log.Information("Exportación exitosa: {File}, {Rows} registros",
                             Path.GetFileName(exportResult.FilePath), exportResult.RowsExported);
+                        
+                        totalRowsExported += exportResult.RowsExported;
                 
                         // Subir a SharePoint
                         var uploadSuccess = await uploader.UploadFileAsync(
@@ -160,13 +186,22 @@ namespace FarmacopilotAgent.Runner
                         {
                             Log.Information("Archivo subido correctamente a SharePoint");
                 
-                            await uploader.ValidateUploadAsync(
+                            // Validar integridad SHA256
+                            var validationSuccess = await uploader.ValidateUploadAsync(
                                 $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
                                 exportResult.Sha256Hash
                             );
-                
-                            // Actualizar timestamp de última exportación para esta tabla
-                            tableConfig.LastExportTimestamp = DateTime.UtcNow;
+                            
+                            if (validationSuccess)
+                            {
+                                // Actualizar timestamp de última exportación para esta tabla
+                                tableConfig.LastExportTimestamp = DateTime.UtcNow;
+                                Log.Information("Tabla {Table} procesada y validada correctamente", tableConfig.TableName);
+                            }
+                            else
+                            {
+                                Log.Warning("Validación SHA256 falló para tabla {Table}", tableConfig.TableName);
+                            }
                         }
                         else
                         {
@@ -190,80 +225,16 @@ namespace FarmacopilotAgent.Runner
                 {
                     await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, true);
                     await statusChecker.UpdateLastActivityAsync(config.FarmaciaId);
-                    Log.Information("Todas las exportaciones completadas exitosamente");
+                    Log.Information("Todas las exportaciones completadas exitosamente. Total registros: {Total}", totalRowsExported);
                 }
                 else
                 {
                     await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "partial_export_failed");
-                    Log.Warning("Algunas exportaciones fallaron");
-                }
-
-                // Probar conexión antes de exportar
-                Log.Information("Verificando conexión a base de datos...");
-                var connectionOk = await exporter.TestConnectionAsync(connectionString);
-                
-                if (!connectionOk)
-                {
-                    Log.Error("No se pudo conectar a la base de datos");
-                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "connection_failed");
-                    return 1;
-                }
-
-                Log.Information("Conexión a base de datos verificada correctamente");
-
-                // Realizar exportación
-                var exportResult = await exporter.ExportDataAsync(lastExportTs);
-            
-                if (exportResult.Success)
-                {
-                    Log.Information("Exportación exitosa: {File}, {Rows} registros", 
-                        Path.GetFileName(exportResult.FilePath), exportResult.RowsExported);
-            
-                    // Subir a SharePoint
-                    var credentialsProvider = new GraphCredentialsProvider(BasePath, Log.Logger);
-                    var graphCredentials = credentialsProvider.GetCredentials();
-            
-                    var uploader = new SharePointGraphUploader(
-                        config.FarmaciaId,
-                        graphCredentials,
-                        Log.Logger
-                    );
-            
-                    var uploadSuccess = await uploader.UploadFileAsync(
-                        exportResult.FilePath, 
-                        $"/Clients/{config.FarmaciaId}/Exports/"
-                    );
-            
-                    if (uploadSuccess)
-                    {
-                        Log.Information("Archivo subido correctamente a SharePoint");
-                        
-                        await uploader.ValidateUploadAsync(
-                            $"/Clients/{config.FarmaciaId}/Exports/{Path.GetFileName(exportResult.FilePath)}",
-                            exportResult.Sha256Hash
-                        );
-            
-                        await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, true);
-            
-                        // Actualizar última actividad en PostgreSQL
-                        await statusChecker.UpdateLastActivityAsync(config.FarmaciaId);
-
-                        Log.Information("Proceso completado exitosamente");
-                    }
-                    else
-                    {
-                        Log.Error("Error al subir archivo a SharePoint");
-                        await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "upload_failed");
-                    }
-                }
-                else
-                {
-                    Log.Error("Error en exportación: {Error}", exportResult.ErrorDetails);
-                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, exportResult.ErrorDetails);
+                    Log.Warning("Algunas exportaciones fallaron. Revisar logs para detalles.");
                 }
             
                 Log.Information("=== Farmacopilot Agent finalizado ===");
-                return exportResult.Success ? 0 : 1;
+                return allSuccess ? 0 : 1;
             }
             catch (Exception ex)
             {
@@ -272,7 +243,7 @@ namespace FarmacopilotAgent.Runner
             }
             finally
             {
-                Log.CloseAndFlush();
+                await Log.CloseAndFlushAsync();
             }
         }
     }
