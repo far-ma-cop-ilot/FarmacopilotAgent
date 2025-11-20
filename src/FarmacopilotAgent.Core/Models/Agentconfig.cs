@@ -1,135 +1,250 @@
 using System;
-using System.Text.Json.Serialization;
+using System.Data.Common;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Data.SqlClient;
+using Oracle.ManagedDataAccess.Client;
+using Serilog;
+using Serilog.Events;
+using FarmacopilotAgent.Core.Utils;
+using FarmacopilotAgent.Core.Security;
+using FarmacopilotAgent.Core.Database;
+using FarmacopilotAgent.Detection;
+using FarmacopilotAgent.Exporters;
+using FarmacopilotAgent.Uploaders;
 
-namespace FarmacopilotAgent.Core.Models
+namespace FarmacopilotAgent.Runner
 {
-    namespace FarmacopilotAgent.Core.Models
-{
-    public class AgentConfig
+    class Program
     {
-        [JsonPropertyName("farmacia_id")]
-        public string FarmaciaId { get; set; } = string.Empty;
+        private static readonly string BasePath = @"C:\FarmacopilotAgent";
+        private static readonly string LogPath = Path.Combine(BasePath, "logs");
 
-        [JsonPropertyName("erp_type")]
-        public string ErpType { get; set; } = string.Empty; // "nixfarma" o "farmatic"
+        static async Task<int> Main(string[] args)
+        {
+            // Configurar Serilog
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                .Enrich.FromLogContext()
+                .WriteTo.Console()
+                .WriteTo.File(
+                    Path.Combine(LogPath, "agent.log"),
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 30,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
+                .CreateLogger();
 
-        [JsonPropertyName("erp_version")]
-        public string ErpVersion { get; set; } = string.Empty;
+            try
+            {
+                Log.Information("=== Farmacopilot Agent v1.0.0 iniciado ===");
+            
+                // Cargar configuración
+                var configManager = new ConfigManager(BasePath, Log.Logger);
+                var config = await configManager.LoadConfigAsync();
+            
+                if (config == null)
+                {
+                    Log.Error("No se pudo cargar la configuración");
+                    return 1;
+                }
 
-        [JsonPropertyName("db_type")]
-        public string DbType { get; set; } = string.Empty; // "oracle" o "sqlserver"
-
-        [JsonPropertyName("db_connection_encrypted")]
-        public string DbConnectionEncrypted { get; set; } = string.Empty;
-
-        [JsonPropertyName("sharepoint_site_id")]
-        public string SharePointSiteId { get; set; } = string.Empty; // Del instalador
-
-        [JsonPropertyName("tables_to_export")]
-        public List<TableExportConfig> TablesToExport { get; set; } = new();
-
-        [JsonPropertyName("export_schedule")]
-        public string ExportSchedule { get; set; } = "03:00";
-
-        [JsonPropertyName("last_install_ts")]
-        public DateTime LastInstallTimestamp { get; set; } = DateTime.UtcNow;
-
-        [JsonPropertyName("agent_version")]
-        public string AgentVersion { get; set; } = "1.0.0";
-
-        [JsonPropertyName("postgres_connection_encrypted")]
-        public string PostgresConnectionEncrypted { get; set; } = string.Empty;
-    }
-
-    public class TableExportConfig
-    {
-        [JsonPropertyName("table_name")]
-        public string TableName { get; set; } = string.Empty;
-
-        [JsonPropertyName("incremental_column")]
-        public string? IncrementalColumn { get; set; } // null = full export
-
-        [JsonPropertyName("enabled")]
-        public bool Enabled { get; set; } = true;
-
-        [JsonPropertyName("last_export_ts")]
-        public DateTime? LastExportTimestamp { get; set; }
-    }
-}
-
-        [JsonPropertyName("graph_client_secret_encrypted")]
-        public string GraphClientSecretEncrypted { get; set; } = string.Empty;
-
-        [JsonPropertyName("sharepoint_site_id")]
-        public string SharePointSiteId { get; set; } = string.Empty;
-
-        [JsonPropertyName("export_schedule")]
-        public string ExportSchedule { get; set; } = "03:00";
-
-        [JsonPropertyName("last_install_ts")]
-        public DateTime LastInstallTimestamp { get; set; } = DateTime.UtcNow;
-
-        [JsonPropertyName("agent_version")]
-        public string AgentVersion { get; set; } = "1.0.0";
-
-        [JsonPropertyName("telemetry_enabled")]
-        public bool TelemetryEnabled { get; set; } = false;
-
-        [JsonPropertyName("api_base_url")]
-        public string ApiBaseUrl { get; set; } = "https://api.farmacopilot.com";
-
-        [JsonPropertyName("postgres_connection_encrypted")]
-        public string PostgresConnectionEncrypted { get; set; } = string.Empty;
+                Log.Information("Configuración cargada: FarmaciaID={FarmaciaId}, ERP={ErpType} v{Version}",
+                    config.FarmaciaId, config.ErpType, config.ErpVersion);
+            
+                // Verificar estado del cliente desde PostgreSQL
+                var postgresConnection = configManager.GetDecryptedPostgresConnection(config);
+                var statusChecker = new PostgresStatusChecker(postgresConnection, Log.Logger);
+                
+                ClientStatus? clientStatus = null;
+                int retryCount = 0;
+                const int maxRetries = 3;
+                
+                while (retryCount < maxRetries && clientStatus == null)
+                {
+                    clientStatus = await statusChecker.GetClientStatusAsync(config.FarmaciaId);
+                    
+                    if (clientStatus == null)
+                    {
+                        retryCount++;
+                        if (retryCount < maxRetries)
+                        {
+                            Log.Warning("Intento {Retry}/{Max} de verificar estado del cliente falló. Reintentando en 5s...", 
+                                retryCount, maxRetries);
+                            await Task.Delay(5000);
+                        }
+                    }
+                }
+                
+                if (clientStatus == null)
+                {
+                    Log.Error("No se pudo verificar estado del cliente después de {Retries} intentos. Abortando ejecución.", maxRetries);
+                    return 1;
+                }
+            
+                if (!clientStatus.Active)
+                {
+                    Log.Warning("Cliente inactivo. Motivo: {Reason}. Deshabilitando tarea.", clientStatus.Reason);
+                    
+                    var taskManager = new TaskSchedulerManager(Log.Logger);
+                    taskManager.DisableTask("Farmacopilot_Export");
+                    
+                    return 0;
+                }
+            
+                Log.Information("Cliente activo. Procediendo con exportación...");
+            
+                // Obtener última exportación
+                var lastExportManager = new LastExportManager(BasePath, Log.Logger);
+                
+                // Preparar conexión a base de datos según tipo de ERP
+                var connectionString = configManager.GetDecryptedConnectionString(config);
+                var outputPath = Path.Combine(BasePath, "staging");
+                
+                DbConnection connection;
+                
+                if (config.ErpType.Equals("nixfarma", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Information("Inicializando conexión Oracle 11g (Nixfarma)...");
+                    connection = new OracleConnection(connectionString);
+                }
+                else if (config.ErpType.Equals("farmatic", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Information("Inicializando conexión SQL Server 2019 (Farmatic)...");
+                    connection = new SqlConnection(connectionString);
+                }
+                else
+                {
+                    Log.Error("ERP no soportado: {ErpType}", config.ErpType);
+                    throw new InvalidOperationException($"ERP no soportado: {config.ErpType}");
+                }
+                
+                await connection.OpenAsync();
+                Log.Information("Conexión a base de datos establecida correctamente");
+                
+                // Crear exportador RAW genérico
+                var exporter = new RawExporter(
+                    connection, 
+                    outputPath, 
+                    config.FarmaciaId, 
+                    Log.Logger
+                );
+                
+                // Probar conexión
+                Log.Information("Verificando conectividad a base de datos...");
+                var connectionOk = await exporter.TestConnectionAsync(connectionString);
+                
+                if (!connectionOk)
+                {
+                    Log.Error("No se pudo conectar a la base de datos");
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "connection_failed");
+                    return 1;
+                }
+                
+                Log.Information("Conexión verificada correctamente");
+                
+                // Cargar credenciales Graph API
+                var credentialsProvider = new GraphCredentialsProvider(BasePath, Log.Logger);
+                var graphCredentials = credentialsProvider.GetCredentials();
+                
+                var uploader = new SharePointGraphUploader(
+                    config.FarmaciaId,
+                    graphCredentials,
+                    Log.Logger
+                );
+                
+                // Exportar cada tabla configurada (estrategia RAW: SELECT * sin transformaciones)
+                var allSuccess = true;
+                var totalRowsExported = 0;
+                
+                foreach (var tableConfig in config.TablesToExport.Where(t => t.Enabled))
+                {
+                    Log.Information("Exportando tabla: {Table}", tableConfig.TableName);
+                
+                    var exportResult = await exporter.ExportTableRawAsync(
+                        tableConfig.TableName,
+                        tableConfig.IncrementalColumn,
+                        tableConfig.LastExportTimestamp
+                    );
+                
+                    if (exportResult.Success)
+                    {
+                        Log.Information("Exportación exitosa: {File}, {Rows} registros",
+                            Path.GetFileName(exportResult.FilePath), exportResult.RowsExported);
+                        
+                        totalRowsExported += exportResult.RowsExported;
+                
+                        // Subir a SharePoint
+                        var uploadSuccess = await uploader.UploadFileAsync(
+                            exportResult.FilePath,
+                            $"/Clients/{config.FarmaciaId}/Raw/"
+                        );
+                
+                        if (uploadSuccess)
+                        {
+                            Log.Information("Archivo subido correctamente a SharePoint");
+                
+                            // Validar integridad SHA256
+                            var validationSuccess = await uploader.ValidateUploadAsync(
+                                $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
+                                exportResult.Sha256Hash
+                            );
+                            
+                            if (validationSuccess)
+                            {
+                                // Actualizar timestamp de última exportación para esta tabla
+                                tableConfig.LastExportTimestamp = DateTime.UtcNow;
+                                Log.Information("Tabla {Table} procesada y validada correctamente", tableConfig.TableName);
+                            }
+                            else
+                            {
+                                Log.Warning("Validación SHA256 falló para tabla {Table}", tableConfig.TableName);
+                            }
+                        }
+                        else
+                        {
+                            Log.Error("Error al subir archivo de tabla {Table}", tableConfig.TableName);
+                            allSuccess = false;
+                        }
+                    }
+                    else
+                    {
+                        Log.Error("Error en exportación de tabla {Table}: {Error}",
+                            tableConfig.TableName, exportResult.ErrorDetails);
+                        allSuccess = false;
+                    }
+                }
+                
+                // Guardar config actualizado con nuevos timestamps
+                await configManager.SaveConfigAsync(config);
+                
+                // Actualizar estado global
+                if (allSuccess)
+                {
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, true);
+                    await statusChecker.UpdateLastActivityAsync(config.FarmaciaId);
+                    Log.Information("Todas las exportaciones completadas exitosamente. Total registros: {Total}", totalRowsExported);
+                }
+                else
+                {
+                    await lastExportManager.UpdateLastExportAsync(config.FarmaciaId, false, "partial_export_failed");
+                    Log.Warning("Algunas exportaciones fallaron. Revisar logs para detalles.");
+                }
+            
+                Log.Information("=== Farmacopilot Agent finalizado ===");
+                return allSuccess ? 0 : 1;
             }
-
-    // Resto de modelos sin cambios
-    public class ErpInfo
-    {
-        public string ErpType { get; set; } = string.Empty;
-        public string Version { get; set; } = string.Empty;
-        public string InstallPath { get; set; } = string.Empty;
-        public string DatabaseType { get; set; } = string.Empty;
-        public string DetectionMethod { get; set; } = string.Empty;
-    }
-
-    public class ExportResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public int RowsExported { get; set; }
-        public string FilePath { get; set; } = string.Empty;
-        public string Sha256Hash { get; set; } = string.Empty;
-        public DateTime ExportTimestamp { get; set; }
-        public string ErrorDetails { get; set; } = string.Empty;
-    }
-
-    public class ClientStatus
-    {
-        [JsonPropertyName("farmacia_id")]
-        public string FarmaciaId { get; set; } = string.Empty;
-
-        [JsonPropertyName("active")]
-        public bool Active { get; set; }
-
-        [JsonPropertyName("reason")]
-        public string Reason { get; set; } = string.Empty;
-
-        [JsonPropertyName("last_check")]
-        public DateTime LastCheck { get; set; }
-    }
-
-    public class LastExport
-    {
-        [JsonPropertyName("farmacia_id")]
-        public string FarmaciaId { get; set; } = string.Empty;
-
-        [JsonPropertyName("last_export_ts")]
-        public DateTime LastExportTimestamp { get; set; }
-
-        [JsonPropertyName("last_success")]
-        public bool LastSuccess { get; set; }
-
-        [JsonPropertyName("last_error")]
-        public string LastError { get; set; } = string.Empty;
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Error crítico en Farmacopilot Agent");
+                return 1;
+            }
+            finally
+            {
+                await Log.CloseAndFlushAsync();
+            }
+        }
     }
 }
