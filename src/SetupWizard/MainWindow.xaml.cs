@@ -1,14 +1,15 @@
 using Microsoft.Win32;
-using Microsoft.WindowsAPICodePack.Shell; // Para checks admin (NuGet: Microsoft.WindowsAPICodePack-Shell)
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Management; // Para WMI checks (Windows version, .NET)
+using System.Linq;
+using System.Management;
 using System.Security.Principal;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using Newtonsoft.Json; // NuGet: Newtonsoft.Json para config
+using Newtonsoft.Json;
 
 namespace SetupWizard
 {
@@ -19,8 +20,10 @@ namespace SetupWizard
         private string detectedVersion = string.Empty;
         private string dbConnectionString = string.Empty;
         private string dbUsername = string.Empty;
-        private string dbPassword = string.Empty; // Encriptar post-input
-        private bool[] selectedTables = new bool[3]; // Ej: ventas=true, stock=true, compras=true (por default)
+        private string dbPassword = string.Empty;
+
+        // ← INSTANCIA DEL SERVICIO (esto es lo que faltaba)
+        private readonly InstallerService _service = new InstallerService();
 
         public MainWindow()
         {
@@ -55,12 +58,12 @@ namespace SetupWizard
                     break;
                 case "Install":
                     InstallPanel.Visibility = Visibility.Visible;
+                    InstallStatusLabel.Text = "Iniciando instalación...";
                     InstallAsync();
                     break;
             }
         }
 
-        // Pantalla 1: Bienvenida + Checks
         private void LoadFarmaciaId()
         {
             var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -72,80 +75,101 @@ namespace SetupWizard
             }
             else
             {
-                // Template si no existe
                 var template = new { farmacia_id = "farmacia_001" };
                 File.WriteAllText(configPath, JsonConvert.SerializeObject(template, Formatting.Indented));
                 farmaciaId = "farmacia_001";
+                FarmaciaIdTextBox.Text = farmaciaId;
             }
         }
 
         private void PerformWelcomeChecks()
         {
-            var errors = new System.Text.StringBuilder();
+            var errors = new StringBuilder();
 
-            // Check Windows version (10+)
+            // Windows 10 o superior
             using (var searcher = new ManagementObjectSearcher("SELECT * FROM Win32_OperatingSystem"))
             {
                 foreach (ManagementObject obj in searcher.Get())
                 {
                     var version = obj["Version"]?.ToString();
                     if (!version.StartsWith("10.") && !version.StartsWith("11."))
-                        errors.AppendLine("Requiere Windows 10 o superior.");
+                        errors.AppendLine("• Requiere Windows 10 o Windows 11");
                 }
             }
 
-            // Check Admin
+            // Administrador
             var identity = WindowsIdentity.GetCurrent();
             var principal = new WindowsPrincipal(identity);
             if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
-                errors.AppendLine("Ejecutar como Administrador.");
+                errors.AppendLine("• Debe ejecutarse como Administrador");
 
-            // Check .NET 8+
-            var netPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"dotnet\shared\Microsoft.NETCore.App");
-            if (!Directory.Exists(netPath) || !Directory.GetDirectories(netPath).Any(d => d.Contains("8.")))
-                errors.AppendLine("Requiere .NET 8.0 runtime.");
+            // .NET 8 Runtime
+            var netPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"dotnet\shared\Microsoft.NETCore.App");
+            if (!Directory.Exists(netPath) || !Directory.GetDirectories(netPath).Any(d => Path.GetFileName(d).StartsWith("8.")))
+                errors.AppendLine("• Requiere .NET 8.0 Desktop Runtime instalado");
 
             if (errors.Length > 0)
             {
-                MessageBox.Show($"Errores en checks:\n{errors}", "Instalación Fallida", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Se han detectado los siguientes problemas:\n\n{errors}\n\nEl instalador se cerrará.", 
+                    "Requisitos no cumplidos", MessageBoxButton.OK, MessageBoxImage.Error);
                 Close();
             }
             else
             {
-                StatusLabel.Text = "Checks OK. Farmacia ID: " + farmaciaId;
+                StatusLabel.Text = $"Todo correcto · Farmacia ID: {farmaciaId}";
+                StatusLabel.Foreground = System.Windows.Media.Brushes.Green;
             }
         }
 
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
-            var currentScreen = (sender as Button).Tag?.ToString();
-            switch (currentScreen)
+            switch (GetCurrentScreen())
             {
                 case "Welcome":
-                    if (string.IsNullOrEmpty(FarmaciaIdTextBox.Text)) { MessageBox.Show("Ingrese Farmacia ID."); return; }
-                    farmaciaId = FarmaciaIdTextBox.Text;
+                    if (string.IsNullOrWhiteSpace(FarmaciaIdTextBox.Text))
+                    {
+                        MessageBox.Show("El ID de farmacia es obligatorio.", "Datos incompletos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    farmaciaId = FarmaciaIdTextBox.Text.Trim();
                     ShowScreen("ErpDetection");
                     break;
+
                 case "ErpDetection":
-                    if (string.IsNullOrEmpty(detectedErp)) { MessageBox.Show("ERP no detectado. Verifique instalación."); return; }
-                    ErpLabel.Text = $"ERP: {detectedErp} v{detectedVersion}";
+                    if (string.IsNullOrEmpty(detectedErp))
+                    {
+                        MessageBox.Show("No se detectó ningún ERP compatible (Nixfarma o Farmatic).\n\nAsegúrese de que el programa esté instalado.", 
+                            "ERP no encontrado", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
                     ShowScreen("DbCreds");
                     break;
+
                 case "DbCreds":
-                    dbUsername = UsernameTextBox.Text;
+                    dbUsername = UsernameTextBox.Text.Trim();
                     dbPassword = PasswordBox.Password;
-                    if (string.IsNullOrEmpty(dbUsername) || string.IsNullOrEmpty(dbPassword)) { MessageBox.Show("Credenciales requeridas."); return; }
-                    // Probar conexión (placeholder - implementar con OracleConnection o SqlConnection)
-                    dbConnectionString = DetectConnectionString(detectedErp); // Lógica abajo
-                    if (TestDbConnection()) ShowScreen("ExportConfig");
-                    else MessageBox.Show("Conexión BD fallida.");
+
+                    if (string.IsNullOrEmpty(dbUsername) || string.IsNullOrEmpty(dbPassword))
+                    {
+                        MessageBox.Show("Usuario y contraseña son obligatorios.", "Credenciales incompletas", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    dbConnectionString = DetectConnectionString(detectedErp);
+                    InstallStatusLabel.Text = "Probando conexión a la base de datos...";
+
+                    if (_service.TestDbConnection(dbConnectionString, dbUsername, dbPassword, detectedErp))
+                    {
+                        ShowScreen("ExportConfig");
+                    }
+                    else
+                    {
+                        MessageBox.Show("No se pudo conectar a la base de datos.\n\nRevise usuario/contraseña o contacte con soporte.", 
+                            "Error de conexión", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
                     break;
+
                 case "ExportConfig":
-                    // Default: diaria 03:00, todas tablas
-                    selectedTables[0] = VentasCheckBox.IsChecked ?? false;
-                    selectedTables[1] = StockCheckBox.IsChecked ?? false;
-                    selectedTables[2] = ComprasCheckBox.IsChecked ?? false;
-                    if (!selectedTables.Any(b => b)) { MessageBox.Show("Seleccione al menos una tabla."); return; }
                     ShowScreen("Install");
                     break;
             }
@@ -153,150 +177,138 @@ namespace SetupWizard
 
         private void CancelButton_Click(object sender, RoutedEventArgs e) => Close();
 
-        // Pantalla 2: Detección ERP
+        private string GetCurrentScreen()
+        {
+            if (WelcomePanel.Visibility == Visibility.Visible) return "Welcome";
+            if (ErpDetectionPanel.Visibility == Visibility.Visible) return "ErpDetection";
+            if (DbCredsPanel.Visibility == Visibility.Visible) return "DbCreds";
+            if (ExportConfigPanel.Visibility == Visibility.Visible) return "ExportConfig";
+            return "Install";
+        }
+
         private void DetectErp()
         {
-            detectedErp = string.Empty;
-            detectedVersion = string.Empty;
-
-            // Scan Nixfarma
+            // Nixfarma
             using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Pulso Informatica\Nixfarma"))
             {
                 if (key != null)
                 {
                     detectedErp = "Nixfarma";
-                    detectedVersion = key.GetValue("Version")?.ToString() ?? "Unknown";
+                    detectedVersion = key.GetValue("Version")?.ToString() ?? "Desconocida";
+                    ErpStatusLabel.Text = $"Nixfarma detectado (v{detectedVersion})";
+                    ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
+                    return;
                 }
             }
 
-            // Scan Farmatic
-            if (string.IsNullOrEmpty(detectedErp))
+            // Farmatic
+            using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Consoft\Farmatic"))
             {
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Consoft\Farmatic"))
+                if (key != null)
                 {
-                    if (key != null)
-                    {
-                        detectedErp = "Farmatic";
-                        detectedVersion = key.GetValue("Version")?.ToString() ?? "Unknown";
-                    }
+                    detectedErp = "Farmatic";
+                    detectedVersion = key.GetValue("Version")?.ToString() ?? "Desconocida";
+                    ErpStatusLabel.Text = $"Farmatic detectado (v{detectedVersion})";
+                    ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
+                    return;
                 }
             }
 
-            ErpStatusLabel.Text = detectedErp == string.Empty ? "No detectado" : $"Detectado: {detectedErp} v{detectedVersion}";
+            ErpStatusLabel.Text = "ERP no detectado";
+            ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Red;
         }
 
         private string DetectConnectionString(string erp)
         {
             if (erp == "Nixfarma")
             {
-                // Leer tnsnames.ora (ej: C:\Oracle\product\11.2.0\client_1\NETWORK\ADMIN\tnsnames.ora)
                 var tnsPath = @"C:\Oracle\product\11.2.0\client_1\NETWORK\ADMIN\tnsnames.ora";
                 if (File.Exists(tnsPath))
                 {
-                    var lines = File.ReadAllLines(tnsPath);
-                    // Parse simple para entry (asumir primera)
-                    foreach (var line in lines)
+                    var content = File.ReadAllText(tnsPath);
+                    var match = System.Text.RegularExpressions.Regex.Match(content, @"(\w+)\s*=\s*\(.*?(HOST\s*=\s*[^\)]+).*(PORT\s*=\s*\d+).*(SERVICE_NAME\s*=\s*[\w\.]+)", 
+                        System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (match.Success)
                     {
-                        if (line.Trim().StartsWith("FARMA"))
-                            return $"Data Source={line.Trim()}; User Id={dbUsername}; Password={dbPassword};"; // Oracle format
+                        return $"Data Source={match.Groups[1].Value};User Id={dbUsername};Password={dbPassword};";
                     }
                 }
+                // Fallback genérico
+                return $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=XE)));User Id={dbUsername};Password={dbPassword};";
             }
-            else if (erp == "Farmatic")
+            else // Farmatic
             {
-                // SQL Server: Detect server name via registry o default local
                 using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Consoft\Farmatic"))
                 {
-                    var server = key?.GetValue("Server")?.ToString() ?? "(local)";
-                    return $"Server={server};Database=CGCOF;User Id={dbUsername};Password={dbPassword};";
+                    var server = key?.GetValue("Server")?.ToString() ?? "localhost";
+                    return $"Server={server};Database=CGCOF;User Id={dbUsername};Password={dbPassword};TrustServerCertificate=true;";
                 }
             }
-            return string.Empty;
         }
 
-        private bool TestDbConnection()
-        {
-            // Placeholder: Implementar con System.Data.OracleClient o SqlClient
-            // Ej: using var conn = new OracleConnection(dbConnectionString); conn.Open();
-            // Verificar tablas: SELECT COUNT(*) FROM AB_VENTAS (Nixfarma) o ventas (Farmatic)
-            return true; // Simular OK para demo
-        }
-
-        // Pantalla 4: Instalación
         private async void InstallAsync()
         {
             try
             {
+                InstallStatusLabel.Text = "Creando carpeta de instalación...";
                 var installPath = @"C:\FarmacopilotAgent";
                 Directory.CreateDirectory(installPath);
 
-                // Copiar assets (asumir en app dir: Runner.exe, scripts/, mappings/)
+                InstallStatusLabel.Text = "Copiando archivos del agente...";
                 var sourceDir = AppDomain.CurrentDomain.BaseDirectory;
                 CopyDirectory(sourceDir, installPath);
 
-                // Generar config.json con creds encriptadas (usar ProtectedData para DPAPI)
-                var config = new
+                InstallStatusLabel.Text = "Guardando credenciales cifradas...";
+                _service.EncryptAndSaveCreds(installPath, dbUsername, dbPassword, dbConnectionString, farmaciaId, detectedErp);
+
+                InstallStatusLabel.Text = "Creando tarea programada diaria...";
+                await _service.CreateScheduledTask(installPath);
+
+                InstallStatusLabel.Text = "Ejecutando primera exportación de prueba...";
+                _service.RunExportTest(installPath);
+
+                InstallStatusLabel.Text = "Verificando subida a SharePoint...";
+                if (!_service.VerifyUpload(farmaciaId, detectedErp))
                 {
-                    farmacia_id = farmaciaId,
-                    erp = detectedErp,
-                    connection_string = dbConnectionString, // Encriptar
-                    export_schedule = "03:00",
-                    tables = selectedTables
-                };
-                File.WriteAllText(Path.Combine(installPath, "config.json"), JsonConvert.SerializeObject(config));
+                    MessageBox.Show("Advertencia: No se pudo verificar la subida. Revise logs.", "Subida no verificada", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
 
-                // Crear tarea programada
-                var taskProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "schtasks",
-                        Arguments = $"/create /tn Farmacopilot_Export /tr \"powershell -File {installPath}\\scripts\\export.ps1\" /sc daily /st 03:00 /ru SYSTEM",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-                taskProcess.Start();
+                InstallStatusLabel.Text = "¡Instalación completada con éxito!";
+                InstallStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
 
-                // Primera export prueba
-                await Task.Run(() => RunExportTest(installPath));
+                MessageBox.Show(
+                    $"¡Todo listo!\n\nEl agente se ejecutará automáticamente todas las noches a las 03:00.\n\nTus datos ya están sincronizándose con Farmacopilot.\n\nEn menos de 24h verás tus reportes Power BI.",
+                    "Instalación completada", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                // Verificar subida (placeholder: check Graph API response)
-                StatusLabel.Text = "Instalación completada. Subida verificada.";
-
-                // Llamar API FrontEnd
-                CallCompletionApi(farmaciaId, "completed");
-
-                MessageBox.Show("Instalación exitosa. Export programada para 03:00 AM.");
                 Close();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error en instalación: {ex.Message}");
+                InstallStatusLabel.Text = "Error en instalación";
+                InstallStatusLabel.Foreground = System.Windows.Media.Brushes.Red;
+                MessageBox.Show($"Error crítico:\n{ex.Message}\n\nContacte con soporte@farmacopilot.com", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void CopyDirectory(string source, string target)
         {
-            foreach (var dirPath in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
-                Directory.CreateDirectory(dirPath.Replace(source, target));
+            foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(dir.Replace(source, target));
 
-            foreach (var filePath in Directory.GetFiles(source))
-                File.Copy(filePath, filePath.Replace(source, target), true);
+            foreach (var file in Directory.GetFiles(source, "*.*", SearchOption.AllDirectories))
+            {
+                var dest = file.Replace(source, target);
+                File.Copy(file, dest, true);
+            }
         }
 
-        private void RunExportTest(string path)
-        {
-            // Ejecutar export.ps1 con params
-            var psi = new ProcessStartInfo { FileName = "powershell", Arguments = $"-File {path}\\scripts\\export.ps1 -Test", UseShellExecute = false };
-            Process.Start(psi).WaitForExit();
-        }
-
+        // API call al FrontEnd (placeholder - reemplaza con tu URL real cuando esté lista)
         private void CallCompletionApi(string id, string status)
         {
-            // Placeholder: HttpClient POST a https://farmacopilot.com/api/install-completed
-            // using var client = new HttpClient(); var content = new StringContent(JsonConvert.SerializeObject(new { farmacia_id = id, status }), Encoding.UTF8, "application/json");
-            // client.PostAsync("url", content);
+            // TODO: Descomentar cuando tengas el endpoint
+            // var client = new HttpClient();
+            // client.PostAsync("https://farmacopilot.com/api/install-completed", 
+            //     new StringContent(JsonConvert.SerializeObject(new { farmacia_id = id, status }), Encoding.UTF8, "application/json"));
         }
     }
 }
