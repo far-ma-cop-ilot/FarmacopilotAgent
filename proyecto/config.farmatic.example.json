@@ -4,83 +4,111 @@
   "erp_version": "16.00.9837",
   "db_type": "sqlserver",
   "db_connection_encrypted": "ENCRYPTED_Server=localhost\\SQLEXPRESS;Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;",
+  "postgres_connection_encrypted": "ENCRYPTED_Host=db.farmacopilot.com;Port=5432;Database=farmacopilot_prod;Username=agent_user;Password=secure_password;",
   "sharepoint_site_id": "b!xyz789...",
   "tables_to_export": [
     {
       "table_name": "ventas",
       "incremental_column": "fecha",
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 10,
+      "notes": "Tabla principal de ventas - CRÍTICA"
     },
     {
       "table_name": "linea venta",
       "incremental_column": "fecha",
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 10,
+      "notes": "Líneas de detalle de ventas - CRÍTICA (NOTA: nombre con espacio)"
     },
     {
       "table_name": "articu",
       "incremental_column": null,
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 50,
+      "notes": "Maestro de artículos - Full export siempre"
     },
     {
       "table_name": "proveedor",
       "incremental_column": null,
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 60,
+      "notes": "Maestro de proveedores"
     },
     {
       "table_name": "recep",
       "incremental_column": "fecha_recep",
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 40,
+      "notes": "Recepciones de mercancía"
     },
     {
       "table_name": "vendedor",
       "incremental_column": null,
       "enabled": true,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 80,
+      "notes": "Catálogo de vendedores"
     },
     {
       "table_name": "albaran dev",
       "incremental_column": "fecha",
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Albaranes de devolución - DESHABILITADA por defecto"
     },
     {
       "table_name": "coste venta",
       "incremental_column": "fecha",
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Costes de venta - DESHABILITADA por defecto"
     },
     {
       "table_name": "esarti",
       "incremental_column": null,
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Estado de artículos - DESHABILITADA por defecto"
     },
     {
       "table_name": "linea albaran",
       "incremental_column": "fecha",
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Líneas de albarán - DESHABILITADA por defecto"
     },
     {
       "table_name": "venta aux",
       "incremental_column": "fecha",
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Ventas auxiliares - DESHABILITADA por defecto"
     },
     {
       "table_name": "vlab",
       "incremental_column": null,
       "enabled": false,
-      "last_export_ts": null
+      "last_export_timestamp": null,
+      "priority": 100,
+      "notes": "Valores de laboratorio - DESHABILITADA por defecto"
     }
   ],
   "export_schedule": "03:00",
   "last_install_ts": "2025-01-17T21:34:00Z",
   "agent_version": "1.0.0",
-  "postgres_connection_encrypted": "ENCRYPTED_Host=db.farmacopilot.com;Port=5432;Database=farmacopilot_prod;Username=agent_user;Password=secure_password;"
+  "erp_install_path": "C:\\Program Files\\Consoft\\Farmatic",
+  "detection_method": "registry",
+  "serial_number": "808011255",
+  "database_name": "CGCOF"
 }
