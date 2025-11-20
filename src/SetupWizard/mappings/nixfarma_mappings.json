@@ -1,0 +1,16 @@
+{
+  "version": "9.1.8.20",
+  "db_type": "Oracle",
+  "tables": [
+    { "name": "ventas", "enabled": true, "query_template": "SELECT * FROM AH_VENTAS WHERE FECHA > TO_DATE('@LAST_EXPORT', 'YYYY-MM-DD HH24:MI:SS')", "sql_file": "nixfarma_v9.1.8.20_ventas.sql" },
+    { "name": "articulos", "enabled": true, "query_template": "SELECT * FROM AB_ARTICULOS_FICHA_E", "sql_file": "nixfarma_v9.1.8.20_articulos.sql" },
+    { "name": "familias", "enabled": true, "query_template": "SELECT * FROM AB_FAMILIAS", "sql_file": "nixfarma_v9.1.8.20_familias.sql" },
+    { "name": "laboratorios", "enabled": true, "query_template": "SELECT * FROM AB_LABORATORIOS", "sql_file": "nixfarma_v9.1.8.20_laboratorios.sql" },
+    { "name": "ped_dev", "enabled": true, "query_template": "SELECT * FROM AD_PED_DEV", "sql_file": "nixfarma_v9.1.8.20_ped_dev.sql" },
+    { "name": "proveedores", "enabled": true, "query_template": "SELECT * FROM AD_PROVEEDORES", "sql_file": "nixfarma_v9.1.8.20_proveedores.sql" },
+    { "name": "entidades", "enabled": true, "query_template": "SELECT * FROM AE_ENTIDADES", "sql_file": "nixfarma_v9.1.8.20_entidades.sql" },
+    { "name": "tipos", "enabled": true, "query_template": "SELECT * FROM AE_TIPOS", "sql_file": "nixfarma_v9.1.8.20_tipos.sql" },
+    { "name": "venta_lineas", "enabled": true, "query_template": "SELECT * FROM AH_VENTA_LINEAS WHERE FECHA > TO_DATE('@LAST_EXPORT', 'YYYY-MM-DD HH24:MI:SS')", "sql_file": "nixfarma_v9.1.8.20_venta_lineas.sql" },
+    { "name": "dom_valor_bd", "enabled": true, "query_template": "SELECT * FROM AB_DOM_VALOR_BD", "sql_file": "nixfarma_v9.1.8.20_dom_valor_bd.sql" }
+  ]
+}
