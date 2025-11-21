@@ -119,7 +119,7 @@ namespace FarmacopilotAgent.Detection
                     ErpType = "Nixfarma",
                     Version = version,
                     InstallPath = installPath,
-                    DatabaseType = "SQL Server",
+                    DatabaseType = "Oracle",
                     DetectionMethod = "registry"
                 };
             }
@@ -160,7 +160,7 @@ namespace FarmacopilotAgent.Detection
                     ErpType = "Farmatic",
                     Version = version,
                     InstallPath = installPath,
-                    DatabaseType = "Oracle",
+                    DatabaseType = "SQL Server",
                     DetectionMethod = "registry"
                 };
             }
