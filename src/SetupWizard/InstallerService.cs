@@ -22,7 +22,7 @@ namespace SetupWizard
 
                 if (erp == "Nixfarma")
                 {
-                    // Oracle: Actualiza connectionString con creds
+                    
                     var oracleConnStr = connectionString.Replace("{USER}", username).Replace("{PASS}", password);
                     using var oracleConn = new OracleConnection(oracleConnStr);
                     oracleConn.Open();
@@ -37,7 +37,7 @@ namespace SetupWizard
                 }
                 else if (erp == "Farmatic")
                 {
-                    // SQL Server
+                    
                     var sqlConnStr = connectionString.Replace("{USER}", username).Replace("{PASS}", password);
                     using var sqlConn = new SqlConnection(sqlConnStr);
                     sqlConn.Open();
