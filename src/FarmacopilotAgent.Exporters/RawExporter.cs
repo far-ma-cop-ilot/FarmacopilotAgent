@@ -70,61 +70,67 @@ namespace FarmacopilotAgent.Exporters
         /// <summary>
         /// Exporta una tabla completa sin transformaciones (SELECT *)
         /// </summary>
-        public async Task<ExportResult> ExportTableRawAsync(
-            string tableName, 
-            string? incrementalColumn = null,
-            DateTime? lastExportTimestamp = null)
+        public async Task<ExportResult> ExportDataAsync(DateTime? lastExportTimestamp = null)
         {
-            try
+            var results = new List<ExportResult>();
+            var totalRows = 0;
+            var failedTables = new List<string>();
+            
+            // Obtener lista de tablas desde config
+            var configManager = new ConfigManager(@"C:\FarmacopilotAgent", _logger);
+            var config = await configManager.LoadConfigAsync();
+            
+            if (config == null)
+                throw new InvalidOperationException("Config not found");
+            
+            var tablesToExport = config.TablesToExport
+                .Where(t => t.Enabled)
+                .OrderBy(t => t.Priority);
+            
+            foreach (var table in tablesToExport)
             {
-                var exportType = lastExportTimestamp.HasValue ? "incremental" : "completa";
-                _logger.Information("Iniciando exportación {Type} de tabla {Table}", 
-                    exportType, tableName);
-
-                // Crear directorio de salida
-                Directory.CreateDirectory(_outputPath);
-
-                // Generar nombre de archivo
-                var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-                var fileName = $"{tableName}_raw_{_farmaciaId}_{timestamp}.csv";
-                var filePath = Path.Combine(_outputPath, fileName);
-
-                // Construir query
-                var query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
-
-                // Ejecutar export
-                var rowsExported = await ExportToCsvAsync(query, filePath, lastExportTimestamp);
-
-                // Calcular SHA256
-                var sha256Hash = CalculateSha256(filePath);
-                var sha256FilePath = filePath + ".sha256";
-                await File.WriteAllTextAsync(sha256FilePath, sha256Hash);
-
-                _logger.Information("Exportación completada: {Rows} registros en {File}", 
-                    rowsExported, fileName);
-
-                return new ExportResult
+                try
                 {
-                    Success = true,
-                    Message = $"Exportación {exportType} completada",
-                    RowsExported = rowsExported,
-                    FilePath = filePath,
-                    Sha256Hash = sha256Hash,
-                    ExportTimestamp = DateTime.UtcNow
-                };
+                    // Manejar nombres con espacios (Farmatic)
+                    var sanitizedTableName = table.TableName.Replace(" ", "_");
+                    
+                    _logger.Information("Exportando tabla {Table} ({Sanitized})", 
+                        table.TableName, sanitizedTableName);
+                    
+                    var result = await ExportTableRawAsync(
+                        table.TableName,
+                        table.IncrementalColumn,
+                        table.LastExportTimestamp ?? lastExportTimestamp
+                    );
+                    
+                    results.Add(result);
+                    totalRows += result.RowsExported;
+                    
+                    // Progress reporting
+                    var progress = (results.Count * 100) / tablesToExport.Count();
+                    _logger.Information("Progreso: {Progress}% completado", progress);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "Error exportando tabla {Table}", table.TableName);
+                    failedTables.Add(table.TableName);
+                }
             }
-            catch (Exception ex)
+            
+            return new ExportResult
             {
-                _logger.Error(ex, "Error durante exportación de tabla {Table}", tableName);
-                
-                return new ExportResult
-                {
-                    Success = false,
-                    Message = "Error durante exportación",
-                    ErrorDetails = ex.Message,
-                    ExportTimestamp = DateTime.UtcNow
-                };
-            }
+                Success = failedTables.Count == 0,
+                Message = $"Exportadas {results.Count} tablas, {failedTables.Count} errores",
+                RowsExported = totalRows,
+                ExportTimestamp = DateTime.UtcNow,
+                TablesFailed = failedTables
+            };
+        }
+        
+        // Agregar propiedad a ExportResult
+        public class ExportResultExtended : ExportResult
+        {
+            public List<string> TablesFailed { get; set; } = new();
         }
 
         private string BuildRawQuery(
@@ -132,10 +138,19 @@ namespace FarmacopilotAgent.Exporters
             string? incrementalColumn, 
             DateTime? lastExport)
         {
-            // Escapar nombre de tabla según BD
-            var escapedTable = _connection.GetType().Name.Contains("Oracle")
-                ? $"\"{tableName}\""  // Oracle: "TABLA"
-                : $"[{tableName}]";   // SQL Server: [tabla]
+
+            // Escapar nombre de tabla según BD - manejar espacios y caracteres especiales
+            string escapedTable;
+            if (_connection.GetType().Name.Contains("Oracle"))
+            {
+                // Oracle: "TABLA" - mayúsculas, sin espacios
+                escapedTable = $"\"{tableName.ToUpper()}\"";
+            }
+            else
+            {
+                // SQL Server: [tabla] - permite espacios
+                escapedTable = $"[{tableName}]";
+            }
 
             var query = $"SELECT * FROM {escapedTable}";
 
