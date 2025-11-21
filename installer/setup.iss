@@ -51,6 +51,9 @@ end;
 ; Ejecutables y DLLs
 Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+; SetupWizard
+Source: "publish\SetupWizard.exe"; DestDir: "{app}"; Flags: ignoreversion
+
 ; ✅ NUEVO: Credenciales cifradas pre-configuradas
 Source: "secrets.embedded"; DestDir: "{app}"; DestName: "secrets.enc"; Flags: ignoreversion
 
