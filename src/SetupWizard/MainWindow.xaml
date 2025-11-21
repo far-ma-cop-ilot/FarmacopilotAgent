@@ -53,9 +53,10 @@
         <!-- PANTALLA 5: Instalando -->
         <StackPanel x:Name="InstallPanel" Grid.Row="1" Visibility="Collapsed">
             <TextBlock Text="Instalando el agente de Farmacopilot..." FontSize="18" Margin="0,0,0,20"/>
-            <ProgressBar IsIndeterminate="True" Height="20" Margin="0,20"/>
-            <TextBlock x:Name="InstallStatusLabel" Text="Preparando archivos..." HorizontalAlignment="Center" Margin="0,20"/>
-        </Stack decentralPanel>
+            <ProgressBar x:Name="InstallProgressBar" Height="20" Margin="0,20" Minimum="0" Maximum="100"/>
+            <TextBlock x:Name="InstallStatusLabel" Text="Preparando archivos..." HorizontalAlignment="Center" Margin="0,10"/>
+            <TextBlock x:Name="ProgressPercentLabel" Text="0%" HorizontalAlignment="Center" FontWeight="Bold"/>
+        </StackPanel>
 
         <!-- Botones inferior -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,30,0,0">
