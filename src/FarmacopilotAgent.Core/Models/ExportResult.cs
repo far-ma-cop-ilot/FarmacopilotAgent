@@ -86,5 +86,9 @@ namespace FarmacopilotAgent.Core.Models
         /// Última fecha encontrada en los datos (para tracking)
         /// </summary>
         public DateTime? LastRecordDate { get; set; }
+        /// <summary>
+        /// Lista de tablas que fallaron durante la exportación
+        /// </summary>
+        public List<string>? TablesFailed { get; set; }
     }
 }
