@@ -8,8 +8,8 @@ Agente local de extracción de datos para ERPs de farmacia (Nixfarma y Farmatic)
 
 - ✅ Detección automática de ERP instalado (Nixfarma/Farmatic)
 - ✅ Conexión segura a base de datos local:
-  - **Nixfarma → Oracle 11g** (no SQL Server como se asumió inicialmente)
-  - **Farmatic → SQL Server 2019** (no Oracle como se asumió inicialmente)
+  - **Nixfarma → Oracle 11g**
+  - **Farmatic → SQL Server 2019**
 - ✅ Extracción RAW completa (SELECT *) para transformación en Fabric
 - ✅ Sin mappings en el agente (transformaciones en lakehouse)
 - ✅ Cifrado de credenciales con Windows DPAPI
