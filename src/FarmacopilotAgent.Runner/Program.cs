@@ -41,6 +41,14 @@ namespace FarmacopilotAgent.Runner
 
             var stopwatch = Stopwatch.StartNew();
 
+            // Procesar exportaciones fallidas pendientes
+            var failedQueue = new FailedExportQueue(BasePath);
+            if (failedQueue.Count > 0)
+            {
+                Log.Information("Procesando {Count} exportaciones pendientes de reintentos", failedQueue.Count);
+                await ProcessFailedExportsAsync(failedQueue);
+            }
+
             try
             {
                 Log.Information("═══════════════════════════════════════════════════════════");
@@ -64,34 +72,20 @@ namespace FarmacopilotAgent.Runner
                 Log.Information("  - Base de datos: {DbType}", config.DbType);
                 Log.Information("  - Tablas habilitadas: {Count}", config.TablesToExport.Count(t => t.Enabled));
             
-                // Verificar estado del cliente desde PostgreSQL
+                // Crear RetryManager
+                var retryManager = new RetryManager(Log.Logger);
+
+                // Verificar estado del cliente desde PostgreSQL con reintentos
                 Log.Information("Verificando estado del cliente en PostgreSQL...");
                 var postgresConnection = configManager.GetDecryptedPostgresConnection(config);
                 var statusChecker = new PostgresStatusChecker(postgresConnection, Log.Logger);
                 
-                ClientStatus? clientStatus = null;
-                int retryCount = 0;
-                const int maxRetries = 3;
-                
-                while (retryCount < maxRetries && clientStatus == null)
-                {
-                    clientStatus = await statusChecker.GetClientStatusAsync(config.FarmaciaId);
-                    
-                    if (clientStatus == null)
-                    {
-                        retryCount++;
-                        if (retryCount < maxRetries)
-                        {
-                            Log.Warning("Intento {Retry}/{Max} de verificar estado falló. Reintentando en 5s...", 
-                                retryCount, maxRetries);
-                            await Task.Delay(5000);
-                        }
-                    }
-                }
+                ClientStatus? clientStatus = await retryManager.ExecuteAsync(async () =>
+                    await statusChecker.GetClientStatusAsync(config.FarmaciaId));
                 
                 if (clientStatus == null)
                 {
-                    Log.Error("No se pudo verificar estado del cliente después de {Retries} intentos", maxRetries);
+                    Log.Error("No se pudo verificar estado del cliente después de reintentos");
                     Log.Warning("El agente continuará con la exportación, pero puede estar desactualizado");
                     // No abortamos - permitimos exportación offline
                 }
@@ -168,7 +162,13 @@ namespace FarmacopilotAgent.Runner
                     throw new InvalidOperationException($"Base de datos no soportada: {config.DbType}");
                 }
                 
-                await connection.OpenAsync();
+                // Conectar con reintentos
+                await retryManager.ExecuteDbAsync(async () =>
+                {
+                    await connection.OpenAsync();
+                    return true;
+                });
+                
                 Log.Information("✓ Conexión establecida correctamente");
                 
                 // Crear exportador RAW genérico
@@ -179,8 +179,9 @@ namespace FarmacopilotAgent.Runner
                     Log.Logger
                 );
                 
-                // Verificar conectividad
-                var connectionOk = await exporter.TestConnectionAsync(connectionString);
+                // Verificar conectividad con reintentos
+                var connectionOk = await retryManager.ExecuteDbAsync(async () =>
+                    await exporter.TestConnectionAsync(connectionString));
                 
                 if (!connectionOk)
                 {
@@ -230,11 +231,13 @@ namespace FarmacopilotAgent.Runner
                     {
                         var tableStopwatch = Stopwatch.StartNew();
                         
-                        var exportResult = await exporter.ExportTableRawAsync(
-                            tableConfig.TableName,
-                            tableConfig.IncrementalColumn,
-                            tableConfig.LastExportTimestamp
-                        );
+                        // Exportar con reintentos
+                        var exportResult = await retryManager.ExecuteDbAsync(async () =>
+                            await exporter.ExportTableRawAsync(
+                                tableConfig.TableName,
+                                tableConfig.IncrementalColumn,
+                                tableConfig.LastExportTimestamp
+                            ));
                         
                         tableStopwatch.Stop();
                         exportResult.DurationMs = tableStopwatch.ElapsedMilliseconds;
@@ -249,23 +252,25 @@ namespace FarmacopilotAgent.Runner
                             
                             totalRowsExported += exportResult.RowsExported;
                     
-                            // Subir a SharePoint
+                            // Subir a SharePoint con reintentos
                             Log.Information("  Subiendo a SharePoint...");
-                            var uploadSuccess = await uploader.UploadFileAsync(
-                                exportResult.FilePath,
-                                $"/Clients/{config.FarmaciaId}/Raw/"
-                            );
+                            var uploadSuccess = await retryManager.ExecuteUploadAsync(async () =>
+                                await uploader.UploadFileAsync(
+                                    exportResult.FilePath,
+                                    $"/Clients/{config.FarmaciaId}/Raw/"
+                                ));
                     
                             if (uploadSuccess)
                             {
                                 exportResult.UploadedToSharePoint = true;
                                 Log.Information("  ✓ Archivo subido correctamente");
                     
-                                // Validar integridad SHA256
-                                var validationSuccess = await uploader.ValidateUploadAsync(
-                                    $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
-                                    exportResult.Sha256Hash
-                                );
+                                // Validar integridad SHA256 con reintentos
+                                var validationSuccess = await retryManager.ExecuteAsync(async () =>
+                                    await uploader.ValidateUploadAsync(
+                                        $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
+                                        exportResult.Sha256Hash
+                                    ));
                                 
                                 if (validationSuccess)
                                 {
@@ -295,7 +300,13 @@ namespace FarmacopilotAgent.Runner
                             }
                             else
                             {
-                                Log.Error("  ✗ Error al subir archivo");
+                                // Encolar para reintento diferido
+                                Log.Error("  ✗ Error al subir archivo después de reintentos");
+                                await failedQueue.EnqueueAsync(
+                                    tableConfig.TableName,
+                                    tableConfig.LastExportTimestamp,
+                                    "Upload failed after retries"
+                                );
                                 tablesFailed++;
                                 allSuccess = false;
                             }
@@ -303,6 +314,11 @@ namespace FarmacopilotAgent.Runner
                         else
                         {
                             Log.Error("  ✗ Error en exportación: {Error}", exportResult.ErrorDetails);
+                            await failedQueue.EnqueueAsync(
+                                tableConfig.TableName,
+                                tableConfig.LastExportTimestamp,
+                                exportResult.ErrorDetails ?? "Export failed"
+                            );
                             tablesFailed++;
                             allSuccess = false;
                         }
@@ -310,6 +326,11 @@ namespace FarmacopilotAgent.Runner
                     catch (Exception ex)
                     {
                         Log.Error(ex, "  ✗ Excepción durante procesamiento de tabla {Table}", tableConfig.TableName);
+                        await failedQueue.EnqueueAsync(
+                            tableConfig.TableName,
+                            tableConfig.LastExportTimestamp,
+                            ex.Message
+                        );
                         tablesFailed++;
                         allSuccess = false;
                     }
@@ -327,6 +348,7 @@ namespace FarmacopilotAgent.Runner
                 Log.Information("Tablas procesadas exitosamente: {Success}", tablesProcessed);
                 Log.Information("Tablas fallidas: {Failed}", tablesFailed);
                 Log.Information("Total de registros exportados: {Total:N0}", totalRowsExported);
+                Log.Information("Exportaciones pendientes en queue: {Pending}", failedQueue.Count);
                 Log.Information("Duración total: {Duration:N1}s", stopwatch.Elapsed.TotalSeconds);
                 
                 if (allSuccess)
@@ -367,6 +389,48 @@ namespace FarmacopilotAgent.Runner
             finally
             {
                 await Log.CloseAndFlushAsync();
+            }
+        }
+
+        private static async Task ProcessFailedExportsAsync(FailedExportQueue queue)
+        {
+            var processedCount = 0;
+            var maxToProcess = Math.Min(queue.Count, 5); // Procesar máximo 5 por ejecución
+
+            while (processedCount < maxToProcess)
+            {
+                var item = await queue.DequeueAsync();
+                if (item == null) break;
+
+                try
+                {
+                    Log.Information("Reintentando exportación fallida: {Table} (intento {Retry})", 
+                        item.TableName, item.RetryCount + 1);
+
+                    // TODO: Re-ejecutar exportación para esta tabla específica
+                    // Por ahora, solo re-encolar si no excede máximo de reintentos
+                    
+                    if (item.RetryCount < 3)
+                    {
+                        await queue.RequeueAsync(item);
+                    }
+                    else
+                    {
+                        Log.Error("Tabla {Table} excedió máximo de reintentos. Descartada.", item.TableName);
+                    }
+
+                    processedCount++;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error procesando exportación fallida de {Table}", item.TableName);
+                    await queue.RequeueAsync(item);
+                }
+            }
+
+            if (processedCount > 0)
+            {
+                Log.Information("Procesadas {Count} exportaciones pendientes", processedCount);
             }
         }
     }
