@@ -27,6 +27,7 @@ namespace SetupWizard
 
         // ← INSTANCIA DEL SERVICIO (esto es lo que faltaba)
         private readonly InstallerService _service = new InstallerService();
+        private readonly Serilog.ILogger _logger = Serilog.Log.ForContext<MainWindow>();
 
         public MainWindow()
         {
