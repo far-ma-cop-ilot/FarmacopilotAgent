@@ -9,9 +9,13 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Microsoft.WindowsAPICodePack-Shell" Version="1.1.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
-    <PackageReference Include="Oracle.ManagedDataAccess" Version="23.5.0" />
+  <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  <PackageReference Include="Microsoft.WindowsAPICodePack-Shell" Version="1.1.0" />
+  <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+  <PackageReference Include="Oracle.ManagedDataAccess" Version="23.5.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FarmacopilotAgent.Core\FarmacopilotAgent.Core.csproj" />
+    <ProjectReference Include="..\FarmacopilotAgent.Detection\FarmacopilotAgent.Detection.csproj" />
   </ItemGroup>
 </Project>
