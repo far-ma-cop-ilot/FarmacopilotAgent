@@ -264,13 +264,29 @@ namespace SetupWizard
                     MessageBox.Show("Advertencia: No se pudo verificar la subida. Revise logs.", "Subida no verificada", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
 
-                InstallStatusLabel.Text = "¡Instalación completada con éxito!";
-                InstallStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
+                InstallStatusLabel.Text = "Notificando instalación completa...";
 
+                // Notificar al backend
+                var apiSuccess = await CallCompletionApi(farmaciaId, "completed");
+                
+                if (apiSuccess)
+                {
+                    InstallStatusLabel.Text = "¡Instalación completada y registrada!";
+                    InstallStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
+                    
+                    // Trigger Power Automate webhook
+                    await TriggerPowerAutomateWebhook(farmaciaId);
+                }
+                else
+                {
+                    InstallStatusLabel.Text = "¡Instalación completada! (sin conexión al servidor)";
+                    InstallStatusLabel.Foreground = System.Windows.Media.Brushes.Orange;
+                }
+                
                 MessageBox.Show(
-                    $"¡Todo listo!\n\nEl agente se ejecutará automáticamente todas las noches a las 03:00.\n\nTus datos ya están sincronizándose con Farmacopilot.\n\nEn menos de 24h verás tus reportes Power BI.",
+                    $"¡Todo listo!\n\nEl agente se ejecutará automáticamente todas las noches a las 03:00.\n\nRecibirás un email de confirmación con tu primer reporte en las próximas horas.\n\nTus datos ya están sincronizándose con Farmacopilot.",
                     "Instalación completada", MessageBoxButton.OK, MessageBoxImage.Information);
-
+                
                 Close();
             }
             catch (Exception ex)
@@ -293,13 +309,67 @@ namespace SetupWizard
             }
         }
 
-        // API call al FrontEnd (placeholder - reemplaza con tu URL real cuando esté lista)
-        private void CallCompletionApi(string id, string status)
+        private async Task<bool> CallCompletionApi(string id, string status)
         {
-            // TODO: Descomentar cuando tengas el endpoint
-            // var client = new HttpClient();
-            // client.PostAsync("https://farmacopilot.com/api/install-completed", 
-            //     new StringContent(JsonConvert.SerializeObject(new { farmacia_id = id, status }), Encoding.UTF8, "application/json"));
+            try
+            {
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(30);
+                
+                var payload = new
+                {
+                    farmacia_id = id,
+                    status = status,
+                    timestamp = DateTime.UtcNow,
+                    agent_version = "1.0.0",
+                    erp_type = detectedErp,
+                    erp_version = detectedVersion,
+                    hostname = Environment.MachineName
+                };
+                
+                var content = new StringContent(
+                    JsonConvert.SerializeObject(payload), 
+                    Encoding.UTF8, 
+                    "application/json"
+                );
+                
+                var response = await client.PostAsync(
+                    $"https://api.farmacopilot.com/api/installations/{id}/complete", 
+                    content
+                );
+                
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Error(ex, "Error notificando instalación completa");
+                return false;
+            }
+        }
+        private async Task TriggerPowerAutomateWebhook(string farmaciaId)
+        {
+            try
+            {
+                using var client = new HttpClient();
+                var webhookUrl = "https://prod-XX.westeurope.logic.azure.com/workflows/XXXXX/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XXXXX";
+                
+                var payload = new
+                {
+                    farmacia_id = farmaciaId,
+                    event_type = "installation_completed",
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    erp_type = detectedErp
+                };
+                
+                await client.PostAsync(
+                    webhookUrl,
+                    new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json")
+                );
+            }
+            catch
+            {
+                // No crítico - continuar sin error
+            }
         }
     }
 }
