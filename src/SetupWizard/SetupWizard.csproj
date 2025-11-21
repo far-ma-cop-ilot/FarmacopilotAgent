@@ -13,6 +13,7 @@
   <PackageReference Include="Microsoft.WindowsAPICodePack-Shell" Version="1.1.0" />
   <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
   <PackageReference Include="Oracle.ManagedDataAccess" Version="23.5.0" />
+  <PackageReference Include="Serilog" Version="3.1.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FarmacopilotAgent.Core\FarmacopilotAgent.Core.csproj" />
