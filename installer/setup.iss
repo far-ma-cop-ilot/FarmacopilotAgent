@@ -23,17 +23,8 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 DisableProgramGroupPage=yes
 
 [Code]
-var
-  FarmaciaIdPage: TInputQueryWizardPage;
-  FarmaciaId: String;
+// SetupWizard.exe maneja toda la configuración interactiva
 
-procedure InitializeWizard;
-begin
-  FarmaciaIdPage := CreateInputQueryPage(wpWelcome,
-    'Identificación de Farmacia',
-    'Por favor ingrese su ID de farmacia',
-    'Este ID le fue proporcionado tras completar el pago. Formato: FAR2025001');
-  FarmaciaIdPage.Add('ID de Farmacia:', False);
   FarmaciaIdPage.Values[0] := GetPreviousData('FarmaciaId', '');
 end;
 
@@ -78,14 +69,10 @@ Name: "{app}\logs"; Permissions: users-full
 Name: "{app}\staging"; Permissions: users-full
 
 [Run]
-; Detectar ERP y crear config.json inicial
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup --farmacia-id ""{code:GetFarmaciaId}"""; Flags: runhidden waituntilterminated; StatusMsg: "Detectando ERP instalado..."
+; Ejecutar SetupWizard para configuración interactiva
+Filename: "{app}\SetupWizard.exe"; Flags: waituntilterminated; StatusMsg: "Configurando agente Farmacopilot..."
 
-; Crear tarea programada
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install-task.ps1"" -FarmaciaId ""{code:GetFarmaciaId}"""; Flags: runhidden; StatusMsg: "Configurando tarea programada..."
-
-; Primera ejecución de prueba
-Filename: "{app}\{#MyAppExeName}"; Flags: runhidden waituntilterminated; StatusMsg: "Ejecutando primera extracción de prueba..."
+; El SetupWizard ya habrá creado config.json y la tarea programada
 
 [UninstallRun]
 ; Eliminar tarea programada
