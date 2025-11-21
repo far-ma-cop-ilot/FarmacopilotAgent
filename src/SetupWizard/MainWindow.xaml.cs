@@ -10,6 +10,9 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Newtonsoft.Json;
+using FarmacopilotAgent.Core.Models;
+using FarmacopilotAgent.Core.Utils;
+using FarmacopilotAgent.Detection;
 
 namespace SetupWizard
 {
@@ -188,34 +191,22 @@ namespace SetupWizard
 
         private void DetectErp()
         {
-            // Nixfarma
-            using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Pulso Informatica\Nixfarma"))
+            var logger = Serilog.Log.Logger;
+            var erpDetector = new ErpDetector(logger);
+            
+            try
             {
-                if (key != null)
-                {
-                    detectedErp = "Nixfarma";
-                    detectedVersion = key.GetValue("Version")?.ToString() ?? "Desconocida";
-                    ErpStatusLabel.Text = $"Nixfarma detectado (v{detectedVersion})";
-                    ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
-                    return;
-                }
+                var erpInfo = erpDetector.DetectErp();
+                detectedErp = erpInfo.ErpType;
+                detectedVersion = erpInfo.Version;
+                ErpStatusLabel.Text = $"{erpInfo.ErpType} detectado (v{erpInfo.Version})";
+                ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
             }
-
-            // Farmatic
-            using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Consoft\Farmatic"))
+            catch (Exception ex)
             {
-                if (key != null)
-                {
-                    detectedErp = "Farmatic";
-                    detectedVersion = key.GetValue("Version")?.ToString() ?? "Desconocida";
-                    ErpStatusLabel.Text = $"Farmatic detectado (v{detectedVersion})";
-                    ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Green;
-                    return;
-                }
+                ErpStatusLabel.Text = "ERP no detectado";
+                ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Red;
             }
-
-            ErpStatusLabel.Text = "ERP no detectado";
-            ErpStatusLabel.Foreground = System.Windows.Media.Brushes.Red;
         }
 
         private string DetectConnectionString(string erp)
