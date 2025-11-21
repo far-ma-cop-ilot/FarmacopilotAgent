@@ -60,23 +60,54 @@ namespace SetupWizard
 
         public void EncryptAndSaveCreds(string installPath, string username, string password, string connectionString, string farmaciaId, string erp)
         {
-            // Encriptar con DPAPI (LocalMachine scope)
-            var credsData = Encoding.UTF8.GetBytes($"{username}:{password}:{connectionString}");
-            var encryptedCreds = ProtectedData.Protect(credsData, null, DataProtectionScope.LocalMachine);
-
-            var config = new
+            // Usar DPAPIHelper del proyecto Core
+            var encryptedConnection = DPAPIHelper.Encrypt($"{connectionString.Replace("{USER}", username).Replace("{PASS}", password)}");
+            
+            // Crear AgentConfig compatible con ConfigManager
+            var config = new AgentConfig
             {
-                farmacia_id = farmaciaId,
-                erp = erp,
-                encrypted_creds = Convert.ToBase64String(encryptedCreds), // Base64 para JSON
-                export_schedule = "03:00",
-                tables = new[] { true, true, true } // Default: ventas, stock, compras
+                FarmaciaId = farmaciaId,
+                ErpType = erp.ToLower(),
+                ErpVersion = detectedVersion, // Necesitas pasar esto como parámetro
+                DbType = erp == "Nixfarma" ? "oracle" : "sqlserver",
+                DbConnectionEncrypted = encryptedConnection,
+                PostgresConnectionEncrypted = "", // Se llenará desde secrets.enc
+                SharePointSiteId = "", // Se llenará desde secrets.enc
+                ExportSchedule = "03:00",
+                TablesToExport = GetDefaultTables(erp),
+                LastInstallTs = DateTime.UtcNow,
+                AgentVersion = "1.0.0"
             };
-
+        
             var configPath = Path.Combine(installPath, "config.json");
-            File.WriteAllText(configPath, JsonConvert.SerializeObject(config, Formatting.Indented));
-
-            // Para decrypt en runtime (e.g., en export.ps1 o Runner): ProtectedData.Unprotect(Convert.FromBase64String(...), null, DataProtectionScope.LocalMachine)
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(configPath, json);
+        }
+        
+        private List<TableConfig> GetDefaultTables(string erp)
+        {
+            if (erp == "Nixfarma")
+            {
+                return new List<TableConfig>
+                {
+                    new() { TableName = "AH_VENTAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10 },
+                    new() { TableName = "AH_VENTA_LINEAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10 },
+                    new() { TableName = "AB_ARTICULOS_FICHA_E", Enabled = true, Priority = 50 },
+                    new() { TableName = "AB_LABORATORIOS", Enabled = true, Priority = 60 },
+                    new() { TableName = "AD_PROVEEDORES", Enabled = true, Priority = 60 }
+                };
+            }
+            else
+            {
+                return new List<TableConfig>
+                {
+                    new() { TableName = "ventas", IncrementalColumn = "fecha", Enabled = true, Priority = 10 },
+                    new() { TableName = "linea venta", IncrementalColumn = "fecha", Enabled = true, Priority = 10 },
+                    new() { TableName = "articu", Enabled = true, Priority = 50 },
+                    new() { TableName = "proveedor", Enabled = true, Priority = 60 },
+                    new() { TableName = "recep", IncrementalColumn = "fecha_recep", Enabled = true, Priority = 40 }
+                };
+            }
         }
 
         public async Task CreateScheduledTask(string installPath)
