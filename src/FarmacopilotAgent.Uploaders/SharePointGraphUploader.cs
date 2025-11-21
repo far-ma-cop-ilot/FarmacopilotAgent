@@ -83,8 +83,24 @@ namespace FarmacopilotAgent.Uploaders
 
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-                var response = await _httpClient.PutAsync(uploadUrl, content);
-
+                // Implementar política de retry para uploads
+                var retryPolicy = Policy
+                    .HandleResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode && 
+                        (r.StatusCode == System.Net.HttpStatusCode.TooManyRequests || 
+                         r.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
+                         r.StatusCode == System.Net.HttpStatusCode.GatewayTimeout))
+                    .WaitAndRetryAsync(
+                        3,
+                        retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                        onRetry: (outcome, timespan, retry, context) =>
+                        {
+                            _logger.Warning("Reintento {Retry} de upload después de {Delay}s", 
+                                retry, timespan.TotalSeconds);
+                        });
+                
+                var response = await retryPolicy.ExecuteAsync(async () => 
+                    await _httpClient.PutAsync(uploadUrl, content));
+                
                 if (response.IsSuccessStatusCode)
                 {
                     _logger.Information("Archivo subido exitosamente a SharePoint: {Path}", sharePointPath);
@@ -93,6 +109,20 @@ namespace FarmacopilotAgent.Uploaders
                     await UploadSha256FileAsync(localFilePath, sharePointPath, accessToken);
                     
                     return true;
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    _logger.Error("Error al subir archivo. Status: {Status}, Error: {Error}", 
+                        response.StatusCode, error);
+                    
+                    // Guardar en queue para reintento diferido si es error temporal
+                    if ((int)response.StatusCode >= 500)
+                    {
+                        await QueueForRetryAsync(localFilePath, sharePointPath);
+                    }
+                    
+                    return false;
                 }
                 else
                 {
@@ -184,6 +214,25 @@ namespace FarmacopilotAgent.Uploaders
             using var stream = File.OpenRead(filePath);
             var hash = sha256.ComputeHash(stream);
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+        private async Task QueueForRetryAsync(string localPath, string remotePath)
+        {
+            var queuePath = Path.Combine(@"C:\FarmacopilotAgent", "upload_queue");
+            Directory.CreateDirectory(queuePath);
+            
+            var queueItem = new
+            {
+                LocalPath = localPath,
+                RemotePath = remotePath,
+                Timestamp = DateTime.UtcNow,
+                FarmaciaId = _farmaciaId
+            };
+            
+            var fileName = $"pending_{DateTime.UtcNow.Ticks}.json";
+            var json = System.Text.Json.JsonSerializer.Serialize(queueItem);
+            await File.WriteAllTextAsync(Path.Combine(queuePath, fileName), json);
+            
+            _logger.Information("Archivo encolado para reintento: {File}", Path.GetFileName(localPath));
         }
     }
 }
