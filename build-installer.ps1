@@ -37,6 +37,11 @@ dotnet publish src/FarmacopilotAgent.Runner/FarmacopilotAgent.Runner.csproj `
 
 # 3. Generar archivo secrets.embedded (cifrado con DPAPI)
 Write-Host "🔐 Generando credenciales cifradas..."
+dotnet publish src/SetupWizard/SetupWizard.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true `
+  -p:PublishSingleFile=true 
 
 $credentials = @{
     TenantId = $TenantId
