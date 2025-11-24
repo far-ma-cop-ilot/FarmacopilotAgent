@@ -244,93 +244,114 @@ namespace FarmacopilotAgent.Runner
                     {
                         var tableStopwatch = Stopwatch.StartNew();
                         
-                        // Exportar con reintentos
-                        var exportResult = await retryManager.ExecuteDbAsync(async () =>
-                            await exporter.ExportTableRawAsync(
+                        // ✅ FASE 4: Exportar con compresión y particionado automático
+                        var exportResults = await retryManager.ExecuteDbAsync(async () =>
+                            await exporter.ExportTableRawWithCompressionAsync(
                                 tableConfig.TableName,
                                 tableConfig.IncrementalColumn,
                                 tableConfig.LastExportTimestamp
                             ));
                         
                         tableStopwatch.Stop();
-                        exportResult.DurationMs = tableStopwatch.ElapsedMilliseconds;
-                    
-                        if (exportResult.Success)
+                        
+                        // ✅ FASE 4: Manejar múltiples archivos (por particionado)
+                        var allPartsSuccessful = true;
+                        var totalRowsThisTable = 0;
+                        
+                        foreach (var exportResult in exportResults)
                         {
-                            Log.Information("✓ Exportación exitosa");
-                            Log.Information("  - Registros: {Rows:N0}", exportResult.RowsExported);
-                            Log.Information("  - Archivo: {File}", Path.GetFileName(exportResult.FilePath));
-                            Log.Information("  - Tamaño: {Size:N0} KB", exportResult.FileSizeBytes / 1024);
-                            Log.Information("  - Duración: {Duration:N1}s", exportResult.DurationMs / 1000.0);
+                            exportResult.DurationMs = tableStopwatch.ElapsedMilliseconds / exportResults.Count;
                             
-                            totalRowsExported += exportResult.RowsExported;
-                    
-                            // Subir a SharePoint con reintentos
-                            Log.Information("  Subiendo a SharePoint...");
-                            var uploadSuccess = await retryManager.ExecuteUploadAsync(async () =>
-                                await uploader.UploadFileAsync(
-                                    exportResult.FilePath,
-                                    $"/Clients/{config.FarmaciaId}/Raw/"
-                                ));
-                    
-                            if (uploadSuccess)
+                            if (exportResult.Success && exportResult.RowsExported > 0)
                             {
-                                exportResult.UploadedToSharePoint = true;
-                                Log.Information("  ✓ Archivo subido correctamente");
-                    
-                                // Validar integridad SHA256 con reintentos
-                                var validationSuccess = await retryManager.ExecuteAsync(async () =>
-                                    await uploader.ValidateUploadAsync(
-                                        $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
-                                        exportResult.Sha256Hash
-                                    ));
+                                Log.Information("✓ Exportación exitosa");
+                                Log.Information("  - Archivo: {File}", Path.GetFileName(exportResult.FilePath));
+                                Log.Information("  - Registros: {Rows:N0}", exportResult.RowsExported);
+                                Log.Information("  - Tamaño: {Size:N0} KB", exportResult.FileSizeBytes / 1024);
                                 
-                                if (validationSuccess)
+                                totalRowsThisTable += exportResult.RowsExported;
+                        
+                                // Subir a SharePoint con reintentos
+                                Log.Information("  Subiendo a SharePoint...");
+                                var uploadSuccess = await retryManager.ExecuteUploadAsync(async () =>
+                                    await uploader.UploadFileAsync(
+                                        exportResult.FilePath,
+                                        $"/Clients/{config.FarmaciaId}/Raw/"
+                                    ));
+                        
+                                if (uploadSuccess)
                                 {
-                                    exportResult.ValidationPassed = true;
-                                    tableConfig.LastExportTimestamp = DateTime.UtcNow;
-                                    tablesProcessed++;
-                                    Log.Information("  ✓ Validación SHA256 exitosa");
+                                    exportResult.UploadedToSharePoint = true;
+                                    Log.Information("  ✓ Archivo subido correctamente");
+                        
+                                    // Validar integridad SHA256 con reintentos
+                                    var validationSuccess = await retryManager.ExecuteAsync(async () =>
+                                        await uploader.ValidateUploadAsync(
+                                            $"/Clients/{config.FarmaciaId}/Raw/{Path.GetFileName(exportResult.FilePath)}",
+                                            exportResult.Sha256Hash
+                                        ));
                                     
-                                    // Limpiar archivo local tras validación exitosa
-                                    try
+                                    if (validationSuccess)
                                     {
-                                        File.Delete(exportResult.FilePath);
-                                        File.Delete(exportResult.FilePath + ".sha256");
-                                        Log.Debug("  Archivos locales eliminados");
+                                        exportResult.ValidationPassed = true;
+                                        Log.Information("  ✓ Validación SHA256 exitosa");
+                                        
+                                        // Limpiar archivo local tras validación exitosa
+                                        try
+                                        {
+                                            File.Delete(exportResult.FilePath);
+                                            if (File.Exists(exportResult.FilePath + ".sha256"))
+                                                File.Delete(exportResult.FilePath + ".sha256");
+                                            Log.Debug("  Archivos locales eliminados");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Log.Warning(ex, "  No se pudieron eliminar archivos locales (no crítico)");
+                                        }
                                     }
-                                    catch (Exception ex)
+                                    else
                                     {
-                                        Log.Warning(ex, "  No se pudieron eliminar archivos locales (no crítico)");
+                                        Log.Warning("  ⚠ Validación SHA256 falló");
+                                        allPartsSuccessful = false;
                                     }
                                 }
                                 else
                                 {
-                                    Log.Warning("  ⚠ Validación SHA256 falló");
-                                    tablesFailed++;
-                                    allSuccess = false;
+                                    // Encolar para reintento diferido
+                                    Log.Error("  ✗ Error al subir archivo después de reintentos");
+                                    await failedQueue.EnqueueAsync(
+                                        tableConfig.TableName,
+                                        tableConfig.LastExportTimestamp,
+                                        "Upload failed after retries"
+                                    );
+                                    allPartsSuccessful = false;
                                 }
+                            }
+                            else if (exportResult.RowsExported == 0)
+                            {
+                                Log.Information("  ℹ No hay datos nuevos para exportar");
+                                // No es un error - simplemente no hay cambios
                             }
                             else
                             {
-                                // Encolar para reintento diferido
-                                Log.Error("  ✗ Error al subir archivo después de reintentos");
-                                await failedQueue.EnqueueAsync(
-                                    tableConfig.TableName,
-                                    tableConfig.LastExportTimestamp,
-                                    "Upload failed after retries"
-                                );
-                                tablesFailed++;
-                                allSuccess = false;
+                                Log.Error("  ✗ Error en exportación: {Error}", exportResult.ErrorDetails);
+                                allPartsSuccessful = false;
                             }
                         }
-                        else
+                        
+                        // ✅ FASE 4: Actualizar timestamp solo si TODAS las partes fueron exitosas
+                        if (allPartsSuccessful && totalRowsThisTable > 0)
                         {
-                            Log.Error("  ✗ Error en exportación: {Error}", exportResult.ErrorDetails);
+                            tableConfig.LastExportTimestamp = DateTime.UtcNow;
+                            tablesProcessed++;
+                            totalRowsExported += totalRowsThisTable;
+                        }
+                        else if (!allPartsSuccessful)
+                        {
                             await failedQueue.EnqueueAsync(
                                 tableConfig.TableName,
                                 tableConfig.LastExportTimestamp,
-                                exportResult.ErrorDetails ?? "Export failed"
+                                "Partial upload failure"
                             );
                             tablesFailed++;
                             allSuccess = false;
