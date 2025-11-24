@@ -1,12 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using FarmacopilotAgent.Core.Interfaces;
 using FarmacopilotAgent.Core.Models;
+using FarmacopilotAgent.Core.Utils;
+using FarmacopilotAgent.Detection;
 using Serilog;
 
 namespace FarmacopilotAgent.Exporters
@@ -14,6 +18,7 @@ namespace FarmacopilotAgent.Exporters
     /// <summary>
     /// Exportador genérico RAW que extrae SELECT * de cualquier tabla
     /// sin transformaciones. Para uso con Fabric lakehouse Bronze.
+    /// Incluye: detección automática de columnas timestamp, CDC/Change Tracking, compresión y particionado.
     /// </summary>
     public class RawExporter : IExporter
     {
@@ -68,7 +73,7 @@ namespace FarmacopilotAgent.Exporters
         }
 
         /// <summary>
-        /// Exporta una tabla completa sin transformaciones (SELECT *)
+        /// Exporta datos con toda la pipeline de optimización (timestamp detection, CDC/CT, compresión, particionado)
         /// </summary>
         public async Task<ExportResult> ExportDataAsync(DateTime? lastExportTimestamp = null)
         {
@@ -126,11 +131,209 @@ namespace FarmacopilotAgent.Exporters
                 TablesFailed = failedTables
             };
         }
-        
-        // Agregar propiedad a ExportResult
-        public class ExportResultExtended : ExportResult
+
+        /// <summary>
+        /// Exporta una tabla con optimizaciones de Fase 4 (timestamp detection, CDC/CT)
+        /// </summary>
+        public async Task<ExportResult> ExportTableRawAsync(
+            string tableName,
+            string? incrementalColumn,
+            DateTime? lastExportTimestamp)
         {
-            public List<string> TablesFailed { get; set; } = new();
+            var sanitizedTableName = tableName.Replace(" ", "_");
+            var fileName = $"{sanitizedTableName}_{_farmaciaId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            var filePath = Path.Combine(_outputPath, fileName);
+
+            _logger.Information("Exportando {Table} a {File}", tableName, fileName);
+
+            // ✅ FASE 4.1: Detectar automáticamente columna timestamp si no está especificada
+            if (string.IsNullOrEmpty(incrementalColumn))
+            {
+                var detector = new TimestampColumnDetector(_logger);
+                incrementalColumn = await detector.DetectBestTimestampColumnAsync(_connection, tableName);
+                
+                if (!string.IsNullOrEmpty(incrementalColumn))
+                {
+                    _logger.Information("Columna incremental detectada automáticamente: {Column}", 
+                        incrementalColumn);
+                }
+                else
+                {
+                    _logger.Information("No se detectó columna timestamp. Exportación completa (SELECT *)");
+                }
+            }
+
+            // ✅ FASE 4.1: Usar CDC/Change Tracking si está disponible
+            string query;
+            bool usedAdvancedTracking = false;
+            
+            if (_connection.GetType().Name.Contains("Oracle"))
+            {
+                // Oracle: intentar usar CDC (Change Data Capture)
+                var cdcDetector = new OracleCdcDetector(_logger);
+                var cdcEnabled = await cdcDetector.IsCdcEnabledAsync(
+                    (Oracle.ManagedDataAccess.Client.OracleConnection)_connection, 
+                    tableName);
+                
+                if (cdcEnabled)
+                {
+                    _logger.Information("✓ Usando Oracle CDC para extracción incremental");
+                    var lastScn = await LoadLastScnAsync(tableName);
+                    query = await cdcDetector.GetChangesSinceScnAsync(
+                        (Oracle.ManagedDataAccess.Client.OracleConnection)_connection, 
+                        tableName, 
+                        lastScn);
+                    
+                    var currentScn = await cdcDetector.GetCurrentScnAsync(
+                        (Oracle.ManagedDataAccess.Client.OracleConnection)_connection);
+                    await SaveLastScnAsync(tableName, currentScn);
+                    usedAdvancedTracking = true;
+                }
+                else
+                {
+                    query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
+                }
+            }
+            else
+            {
+                // SQL Server: intentar usar Change Tracking
+                var changeTracker = new SqlServerChangeTracker(_logger);
+                var trackingEnabled = await changeTracker.IsTableTrackedAsync(
+                    (Microsoft.Data.SqlClient.SqlConnection)_connection, 
+                    tableName);
+                
+                if (trackingEnabled)
+                {
+                    _logger.Information("✓ Usando SQL Server Change Tracking para extracción incremental");
+                    var lastVersion = await LoadLastChangeVersionAsync(tableName);
+                    query = changeTracker.BuildChangeTrackingQuery(tableName, lastVersion);
+                    
+                    var currentVersion = await changeTracker.GetCurrentVersionAsync(
+                        (Microsoft.Data.SqlClient.SqlConnection)_connection);
+                    await SaveLastChangeVersionAsync(tableName, currentVersion);
+                    usedAdvancedTracking = true;
+                }
+                else
+                {
+                    query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
+                }
+            }
+            
+            if (!usedAdvancedTracking && !string.IsNullOrEmpty(incrementalColumn))
+            {
+                _logger.Information("Usando extracción incremental tradicional (columna: {Column})", 
+                    incrementalColumn);
+            }
+            else if (!usedAdvancedTracking)
+            {
+                _logger.Information("Usando extracción completa (SELECT * sin filtros)");
+            }
+
+            // Ejecutar exportación
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var rowCount = await ExportToCsvAsync(query, filePath, lastExportTimestamp);
+            stopwatch.Stop();
+
+            if (rowCount == 0)
+            {
+                _logger.Information("No hay datos nuevos para exportar");
+                
+                // Eliminar archivo vacío
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+                
+                return new ExportResult
+                {
+                    Success = true,
+                    Message = "No hay datos nuevos",
+                    RowsExported = 0,
+                    TableName = tableName,
+                    ExportTimestamp = DateTime.UtcNow,
+                    ExportType = string.IsNullOrEmpty(incrementalColumn) ? "full" : "incremental",
+                    DurationMs = stopwatch.ElapsedMilliseconds
+                };
+            }
+
+            var fileInfo = new FileInfo(filePath);
+            var sha256 = CalculateSha256(filePath);
+            
+            // Generar archivo .sha256
+            var sha256FilePath = filePath + ".sha256";
+            await File.WriteAllTextAsync(sha256FilePath, sha256);
+
+            _logger.Information("Exportación completada: {Rows:N0} filas, {Size:N0} KB, {Duration:N1}s",
+                rowCount, fileInfo.Length / 1024, stopwatch.Elapsed.TotalSeconds);
+
+            return new ExportResult
+            {
+                Success = true,
+                Message = $"Exportados {rowCount:N0} registros",
+                RowsExported = rowCount,
+                FilePath = filePath,
+                Sha256Hash = sha256,
+                ExportTimestamp = DateTime.UtcNow,
+                TableName = tableName,
+                FileSizeBytes = fileInfo.Length,
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                ExportType = string.IsNullOrEmpty(incrementalColumn) ? "full" : "incremental",
+                ColumnCount = 0 // Se actualiza en ExportToCsvAsync si es necesario
+            };
+        }
+
+        /// <summary>
+        /// ✅ FASE 4.2: Exportar con compresión y particionado automático
+        /// </summary>
+        public async Task<List<ExportResult>> ExportTableRawWithCompressionAsync(
+            string tableName,
+            string? incrementalColumn,
+            DateTime? lastExportTimestamp)
+        {
+            // Exportar normalmente primero
+            var baseResult = await ExportTableRawAsync(tableName, incrementalColumn, lastExportTimestamp);
+            
+            if (!baseResult.Success || baseResult.RowsExported == 0)
+            {
+                return new List<ExportResult> { baseResult };
+            }
+            
+            var results = new List<ExportResult>();
+            var compressor = new FileCompressor(_logger);
+            
+            // ✅ FASE 4.2: Particionar si es necesario (archivos >100MB)
+            var partitions = await compressor.PartitionIfNeededAsync(baseResult.FilePath);
+            
+            if (partitions.Count > 1)
+            {
+                _logger.Information("Tabla {Table} dividida en {Count} partición(es)", 
+                    tableName, partitions.Count);
+            }
+            
+            // ✅ FASE 4.2: Comprimir cada partición
+            foreach (var partitionPath in partitions)
+            {
+                var compressedPath = await compressor.CompressIfNeededAsync(partitionPath);
+                
+                var partResult = new ExportResult
+                {
+                    Success = true,
+                    FilePath = compressedPath,
+                    TableName = tableName,
+                    ExportTimestamp = baseResult.ExportTimestamp,
+                    RowsExported = baseResult.RowsExported / partitions.Count, // Estimado
+                    FileSizeBytes = new FileInfo(compressedPath).Length,
+                    Sha256Hash = CalculateSha256(compressedPath),
+                    ExportType = baseResult.ExportType,
+                    DurationMs = baseResult.DurationMs
+                };
+                
+                // Generar .sha256 para archivo comprimido
+                var sha256FilePath = compressedPath + ".sha256";
+                await File.WriteAllTextAsync(sha256FilePath, partResult.Sha256Hash);
+                
+                results.Add(partResult);
+            }
+            
+            return results;
         }
 
         private string BuildRawQuery(
@@ -138,7 +341,6 @@ namespace FarmacopilotAgent.Exporters
             string? incrementalColumn, 
             DateTime? lastExport)
         {
-
             // Escapar nombre de tabla según BD - manejar espacios y caracteres especiales
             string escapedTable;
             if (_connection.GetType().Name.Contains("Oracle"))
@@ -161,7 +363,7 @@ namespace FarmacopilotAgent.Exporters
                     : "@lastExport"; // SQL Server
 
                 var escapedColumn = _connection.GetType().Name.Contains("Oracle")
-                    ? $"\"{incrementalColumn}\""
+                    ? $"\"{incrementalColumn.ToUpper()}\""
                     : $"[{incrementalColumn}]";
 
                 query += $" WHERE {escapedColumn} > {paramName}";
@@ -252,10 +454,57 @@ namespace FarmacopilotAgent.Exporters
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
 
-        public Task<ExportResult> ExportDataAsync(DateTime? lastExportTimestamp = null)
+        // ✅ FASE 4.1: Métodos auxiliares para tracking de versiones CDC/Change Tracking
+        
+        private async Task<long> LoadLastScnAsync(string tableName)
         {
-            throw new NotImplementedException(
-                "Use ExportTableRawAsync para exportar tablas específicas");
+            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"scn_{tableName.Replace(" ", "_")}.txt");
+            if (File.Exists(trackingFile))
+            {
+                var content = await File.ReadAllTextAsync(trackingFile);
+                if (long.TryParse(content, out var scn))
+                {
+                    _logger.Debug("SCN anterior cargado para {Table}: {Scn}", tableName, scn);
+                    return scn;
+                }
+            }
+            
+            _logger.Debug("No hay SCN anterior para {Table}, iniciando desde 0", tableName);
+            return 0;
+        }
+
+        private async Task SaveLastScnAsync(string tableName, long scn)
+        {
+            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"scn_{tableName.Replace(" ", "_")}.txt");
+            await File.WriteAllTextAsync(trackingFile, scn.ToString());
+            _logger.Debug("SCN guardado para {Table}: {Scn}", tableName, scn);
+        }
+
+        private async Task<long> LoadLastChangeVersionAsync(string tableName)
+        {
+            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"ctversion_{tableName.Replace(" ", "_")}.txt");
+            if (File.Exists(trackingFile))
+            {
+                var content = await File.ReadAllTextAsync(trackingFile);
+                if (long.TryParse(content, out var version))
+                {
+                    _logger.Debug("Change Tracking version anterior cargada para {Table}: {Version}", 
+                        tableName, version);
+                    return version;
+                }
+            }
+            
+            _logger.Debug("No hay Change Tracking version anterior para {Table}, iniciando desde 0", 
+                tableName);
+            return 0;
+        }
+
+        private async Task SaveLastChangeVersionAsync(string tableName, long version)
+        {
+            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"ctversion_{tableName.Replace(" ", "_")}.txt");
+            await File.WriteAllTextAsync(trackingFile, version.ToString());
+            _logger.Debug("Change Tracking version guardada para {Table}: {Version}", 
+                tableName, version);
         }
     }
 }
