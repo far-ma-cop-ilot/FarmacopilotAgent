@@ -55,6 +55,19 @@ namespace FarmacopilotAgent.Runner
                 Log.Information("   Farmacopilot Agent v1.0.0 - Exportación automática ERP");
                 Log.Information("═══════════════════════════════════════════════════════════");
                 Log.Information("Inicio: {Timestamp}", DateTime.Now);
+                
+                // Verificar actualizaciones (solo si no es --verify-update)
+                if (!args.Contains("--verify-update"))
+                {
+                    var updater = new AutoUpdater(BasePath, Log.Logger);
+                    var updated = await updater.CheckAndUpdateAsync();
+                    
+                    if (updated)
+                    {
+                        Log.Information("Actualización aplicada. El agente se reiniciará.");
+                        return 0; // Salir para que el script de actualización reinicie
+                    }
+                }
             
                 // Cargar configuración
                 var configManager = new ConfigManager(BasePath, Log.Logger);
