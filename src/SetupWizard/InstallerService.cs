@@ -121,7 +121,7 @@ namespace SetupWizard
         public async Task CreateScheduledTask(string installPath)
         {
             var taskName = "Farmacopilot_Export";
-            var scriptPath = Path.Combine(installPath, "scripts", "export.ps1");
+            var exePath = Path.Combine(installPath, "FarmacopilotAgent.Runner.exe");
 
             // Eliminar si existe
             var deleteProc = new Process
@@ -129,27 +129,38 @@ namespace SetupWizard
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "schtasks",
-                    Arguments = $"/delete /tn {taskName} /f",
+                    Arguments = $"/delete /tn \"{taskName}\" /f",
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 }
             };
             deleteProc.Start();
-            deleteProc.WaitForExit();
+            await deleteProc.WaitForExitAsync();
 
-            // Crear nueva
+            // Crear nueva tarea que ejecuta directamente el .exe de C#
             var createProc = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
                     FileName = "schtasks",
-                    Arguments = $"/create /tn {taskName} /tr \"powershell.exe -ExecutionPolicy Bypass -File \\\"{scriptPath}\\\"\" /sc daily /st 03:00 /ru SYSTEM /rl HIGHEST",
+                    Arguments = $"/create /tn \"{taskName}\" /tr \"\\\"{exePath}\\\"\" /sc daily /st 03:00 /ru SYSTEM /rl HIGHEST /f",
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 }
             };
             createProc.Start();
-            await createProc.WaitForExitAsync(); // Async para no bloquear UI
+            var output = await createProc.StandardOutput.ReadToEndAsync();
+            var error = await createProc.StandardError.ReadToEndAsync();
+            await createProc.WaitForExitAsync();
+
+            if (createProc.ExitCode != 0)
+            {
+                throw new Exception($"Error creando tarea programada: {error}");
+            }
         }
 
         // Método para primera export prueba (llamar en InstallAsync)
