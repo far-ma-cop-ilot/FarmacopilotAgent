@@ -1,17 +1,17 @@
 # build-installer.ps1 - Compila el instalador con credenciales embebidas
 
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$TenantId,
+    [Parameter(Mandatory=$false)]
+    [string]$TenantId = "d543ed3a-c274-41c8-ad2e-393a36c2d1fc",
     
-    [Parameter(Mandatory=$true)]
-    [string]$ClientId,
+    [Parameter(Mandatory=$false)]
+    [string]$ClientId = "27f13cc9-95e5-4b8e-b7a3-dff7e3b9ec26",
     
-    [Parameter(Mandatory=$true)]
-    [string]$ClientSecret,
+    [Parameter(Mandatory=$false)]
+    [string]$ClientSecret = "IGU8Q~ODfxHsw_LSjAEAHep3C55fjvkyhiddScrx",
     
-    [Parameter(Mandatory=$true)]
-    [string]$SharePointSiteId
+    [Parameter(Mandatory=$false)]
+    [string]$SharePointSiteId = "d14f0b31-c267-4493-82ea-02447a8cc665"
 )
 
 $ErrorActionPreference = "Stop"
