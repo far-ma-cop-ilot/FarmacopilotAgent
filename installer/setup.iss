@@ -54,11 +54,10 @@ Source: "publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs creat
 ; SetupWizard
 Source: "publish\SetupWizard.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; ✅ NUEVO: Credenciales cifradas pre-configuradas
+; Credenciales cifradas pre-configuradas
 Source: "secrets.embedded"; DestDir: "{app}"; DestName: "secrets.enc"; Flags: ignoreversion
 
-; Scripts
-Source: "..\scripts\export.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+; Scripts (solo install-task.ps1, export.ps1 eliminado - usamos C#)
 Source: "..\scripts\install-task.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 ; Mappings
