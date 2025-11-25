@@ -1,19 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Data.SqlClient; // NuGet: Microsoft.Data.SqlClient
-using Oracle.ManagedDataAccess.Client; // NuGet: Oracle.ManagedDataAccess
+using System.Text.Json;
+using Microsoft.Data.SqlClient;
+using Oracle.ManagedDataAccess.Client;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
+using FarmacopilotAgent.Core.Security;
+using FarmacopilotAgent.Core.Models;
 
 namespace SetupWizard
 {
     public class InstallerService
     {
+        private string detectedVersion = "unknown";
         public bool TestDbConnection(string connectionString, string username, string password, string erp)
         {
             try
