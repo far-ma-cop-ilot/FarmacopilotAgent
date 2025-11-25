@@ -64,19 +64,17 @@ namespace SetupWizard
 
         public void EncryptAndSaveCreds(string installPath, string username, string password, string connectionString, string farmaciaId, string erp)
         {
-            // Usar DPAPIHelper del proyecto Core
-            var encryptedConnection = DPAPIHelper.Encrypt($"{connectionString.Replace("{USER}", username).Replace("{PASS}", password)}");
+            var encryptedConnection = DPAPIHelper.Encrypt(connectionString.Replace("{USER}", username).Replace("{PASS}", password));
             
-            // Crear AgentConfig compatible con ConfigManager
             var config = new AgentConfig
             {
                 FarmaciaId = farmaciaId,
                 ErpType = erp.ToLower(),
-                ErpVersion = detectedVersion, // Necesitas pasar esto como parámetro
+                ErpVersion = detectedVersion,
                 DbType = erp == "Nixfarma" ? "oracle" : "sqlserver",
                 DbConnectionEncrypted = encryptedConnection,
-                PostgresConnectionEncrypted = "", // Se llenará desde secrets.enc
-                SharePointSiteId = "", // Se llenará desde secrets.enc
+                PostgresConnectionEncrypted = "",
+                SharePointSiteId = "",
                 ExportSchedule = "03:00",
                 TablesToExport = GetDefaultTables(erp),
                 LastInstallTs = DateTime.UtcNow,
@@ -84,8 +82,14 @@ namespace SetupWizard
             };
         
             var configPath = Path.Combine(installPath, "config.json");
-            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var json = JsonSerializer.Serialize(config, options);
             File.WriteAllText(configPath, json);
+        }
+        
+        public void SetDetectedVersion(string version)
+        {
+            detectedVersion = version;
         }
         
         private List<TableConfig> GetDefaultTables(string erp)
