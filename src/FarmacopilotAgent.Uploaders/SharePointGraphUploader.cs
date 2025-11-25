@@ -98,8 +98,7 @@ namespace FarmacopilotAgent.Uploaders
                                 retry, timespan.TotalSeconds);
                         });
                 
-                var response = await retryPolicy.ExecuteAsync(async () => 
-                    await _httpClient.PutAsync(uploadUrl, content));
+                var response = await _httpClient.PutAsync(uploadUrl, content);
                 
                 if (response.IsSuccessStatusCode)
                 {
@@ -122,13 +121,6 @@ namespace FarmacopilotAgent.Uploaders
                         await QueueForRetryAsync(localFilePath, sharePointPath);
                     }
                     
-                    return false;
-                }
-                else
-                {
-                    var error = await response.Content.ReadAsStringAsync();
-                    _logger.Error("Error al subir archivo. Status: {Status}, Error: {Error}", 
-                        response.StatusCode, error);
                     return false;
                 }
             }
