@@ -418,85 +418,139 @@ namespace FarmacopilotAgent.Detection
 
         private ErpInfo? TryDetectFarmaticFromSqlServer()
         {
-            var connectionStrings = new[]
+            // Detectar instancias SQL Server dinámicamente desde Registry
+            var instances = GetSqlServerInstances();
+            var databases = new[] { "CGCOF", "Farmatic", "FARMATIC", "farmatic" };
+            
+            foreach (var instance in instances)
             {
-                @"Server=localhost;Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;",
-                @"Server=localhost\SQLEXPRESS;Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;",
-                @"Server=.\SQLEXPRESS;Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;",
-                @"Server=(local);Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;",
-                @"Server=127.0.0.1;Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;"
-            };
-
-            foreach (var connStr in connectionStrings)
-            {
-                try
+                foreach (var database in databases)
                 {
-                    using var connection = new SqlConnection(connStr);
-                    connection.Open();
-
-                    // Verificar tablas características de Farmatic
-                    var tablesFound = 0;
-                    foreach (var table in FarmaticTables)
+                    var connStr = $@"Server={instance};Database={database};Integrated Security=true;TrustServerCertificate=true;Connection Timeout=5;";
+                    
+                    try
                     {
-                        var query = $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @table";
-                        using var cmd = new SqlCommand(query, connection);
-                        cmd.Parameters.AddWithValue("@table", table);
-                        var count = (int)cmd.ExecuteScalar();
-                        if (count > 0) tablesFound++;
-                    }
+                        using var connection = new SqlConnection(connStr);
+                        connection.Open();
 
-                    if (tablesFound >= 3)
-                    {
-                        _logger.Information("  Farmatic detectado via SQL Server ({Tables} tablas encontradas)", tablesFound);
-                        
-                        // Obtener versión de SQL Server
-                        using var versionCmd = new SqlCommand("SELECT @@VERSION", connection);
-                        var sqlVersion = versionCmd.ExecuteScalar()?.ToString() ?? "";
-
-                        return new ErpInfo
+                        var tablesFound = 0;
+                        foreach (var table in FarmaticTables)
                         {
-                            ErpType = "Farmatic",
-                            Version = "detected",
-                            DatabaseType = "SQL Server",
-                            DatabaseVersion = sqlVersion.Split('\n').FirstOrDefault(),
-                            DatabaseName = "CGCOF",
-                            DetectionMethod = "database",
-                            DetectedTables = FarmaticTables.ToList(),
-                            ConfidenceLevel = 100
-                        };
+                            var query = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @table";
+                            using var cmd = new SqlCommand(query, connection);
+                            cmd.Parameters.AddWithValue("@table", table);
+                            var count = (int)cmd.ExecuteScalar();
+                            if (count > 0) tablesFound++;
+                        }
+
+                        if (tablesFound >= 3)
+                        {
+                            _logger.Information("  Farmatic detectado via SQL Server ({Tables} tablas encontradas)", tablesFound);
+                            _logger.Information("  Instancia: {Instance}, Base de datos: {Database}", instance, database);
+                            
+                            using var versionCmd = new SqlCommand("SELECT @@VERSION", connection);
+                            var sqlVersion = versionCmd.ExecuteScalar()?.ToString() ?? "";
+
+                            return new ErpInfo
+                            {
+                                ErpType = "Farmatic",
+                                Version = "detected",
+                                DatabaseType = "SQL Server",
+                                DatabaseVersion = sqlVersion.Split('\n').FirstOrDefault(),
+                                DatabaseName = database,
+                                DatabaseInstance = instance,
+                                DetectionMethod = "database",
+                                DetectedTables = FarmaticTables.ToList(),
+                                ConfidenceLevel = 100,
+                                AdditionalInfo = new Dictionary<string, string>
+                                {
+                                    { "ConnectionString", connStr.Replace("Integrated Security=true", "***") }
+                                }
+                            };
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Debug("  SQL Server {ConnStr}: {Error}", connStr.Substring(0, 30), ex.Message);
+                    catch (Exception ex)
+                    {
+                        _logger.Debug("  SQL Server {Instance}/{Db}: {Error}", instance, database, ex.Message);
+                    }
                 }
             }
 
             return null;
         }
 
-        private ErpInfo? TryDetectNixfarmaFromOracle()
+        private List<string> GetSqlServerInstances()
         {
-            var connectionStrings = new[]
+            var instances = new List<string>
             {
-                "Data Source=localhost:1521/XE;User Id=system;Password=oracle;",
-                "Data Source=localhost:1521/NIXFARMA;User Id=system;Password=oracle;",
-                "Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=XE)));User Id=system;Password=oracle;",
-                "Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=NIXFARMA)));User Id=system;Password=oracle;"
+                "localhost",
+                ".",
+                "(local)",
+                "127.0.0.1"
             };
 
-            foreach (var connStr in connectionStrings)
+            try
+            {
+                // Detectar instancias desde Registry
+                var registryPaths = new[]
+                {
+                    @"SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",
+                    @"SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\Instance Names\SQL"
+                };
+
+                foreach (var path in registryPaths)
+                {
+                    using var key = Registry.LocalMachine.OpenSubKey(path);
+                    if (key != null)
+                    {
+                        foreach (var instanceName in key.GetValueNames())
+                        {
+                            if (instanceName.Equals("MSSQLSERVER", StringComparison.OrdinalIgnoreCase))
+                            {
+                                instances.Add("localhost");
+                            }
+                            else
+                            {
+                                instances.Add($@"localhost\{instanceName}");
+                                instances.Add($@".\{instanceName}");
+                            }
+                            _logger.Debug("  Instancia SQL Server detectada: {Instance}", instanceName);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug("  Error leyendo instancias SQL Server desde Registry: {Error}", ex.Message);
+            }
+
+            // Agregar instancias comunes conocidas
+            var commonInstances = new[] { "SQLEXPRESS", "FARMATIC", "CGCOF", "SQL2019", "SQL2017" };
+            foreach (var inst in commonInstances)
+            {
+                instances.Add($@"localhost\{inst}");
+                instances.Add($@".\{inst}");
+            }
+
+            return instances.Distinct().ToList();
+        }
+
+        private ErpInfo? TryDetectNixfarmaFromOracle()
+        {
+            // Detectar configuración Oracle dinámicamente desde tnsnames.ora
+            var connectionStrings = GetOracleConnectionStrings();
+
+            foreach (var connInfo in connectionStrings)
             {
                 try
                 {
-                    using var connection = new OracleConnection(connStr);
+                    using var connection = new OracleConnection(connInfo.ConnectionString);
                     connection.Open();
 
-                    // Verificar tablas características de Nixfarma
                     var tablesFound = 0;
                     foreach (var table in NixfarmaTables)
                     {
-                        var query = $"SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :tableName";
+                        var query = "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :tableName";
                         using var cmd = new OracleCommand(query, connection);
                         cmd.Parameters.Add(new OracleParameter("tableName", table));
                         var count = Convert.ToInt32(cmd.ExecuteScalar());
@@ -506,10 +560,18 @@ namespace FarmacopilotAgent.Detection
                     if (tablesFound >= 3)
                     {
                         _logger.Information("  Nixfarma detectado via Oracle ({Tables} tablas encontradas)", tablesFound);
+                        _logger.Information("  TNS: {TnsName}, Host: {Host}:{Port}", connInfo.TnsName, connInfo.Host, connInfo.Port);
                         
-                        // Obtener versión de Oracle
-                        using var versionCmd = new OracleCommand("SELECT * FROM V$VERSION WHERE ROWNUM = 1", connection);
-                        var oracleVersion = versionCmd.ExecuteScalar()?.ToString() ?? "";
+                        string oracleVersion = "";
+                        try
+                        {
+                            using var versionCmd = new OracleCommand("SELECT BANNER FROM V$VERSION WHERE ROWNUM = 1", connection);
+                            oracleVersion = versionCmd.ExecuteScalar()?.ToString() ?? "";
+                        }
+                        catch
+                        {
+                            oracleVersion = "Oracle (version query failed)";
+                        }
 
                         return new ErpInfo
                         {
@@ -517,20 +579,232 @@ namespace FarmacopilotAgent.Detection
                             Version = "detected",
                             DatabaseType = "Oracle",
                             DatabaseVersion = oracleVersion,
-                            DatabaseName = "NIXFARMA",
+                            DatabaseName = connInfo.ServiceName,
+                            DatabaseInstance = connInfo.TnsName,
                             DetectionMethod = "database",
                             DetectedTables = NixfarmaTables.ToList(),
-                            ConfidenceLevel = 100
+                            ConfidenceLevel = 100,
+                            AdditionalInfo = new Dictionary<string, string>
+                            {
+                                { "Host", connInfo.Host },
+                                { "Port", connInfo.Port.ToString() },
+                                { "ServiceName", connInfo.ServiceName },
+                                { "TnsName", connInfo.TnsName }
+                            }
                         };
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.Debug("  Oracle {ConnStr}: {Error}", connStr.Substring(0, 30), ex.Message);
+                    _logger.Debug("  Oracle {TnsName}: {Error}", connInfo.TnsName, ex.Message);
                 }
             }
 
             return null;
+        }
+
+        private class OracleConnectionInfo
+        {
+            public string ConnectionString { get; set; } = "";
+            public string TnsName { get; set; } = "";
+            public string Host { get; set; } = "localhost";
+            public int Port { get; set; } = 1521;
+            public string ServiceName { get; set; } = "";
+        }
+
+        private List<OracleConnectionInfo> GetOracleConnectionStrings()
+        {
+            var connections = new List<OracleConnectionInfo>();
+
+            // 1. Buscar tnsnames.ora en ubicaciones conocidas
+            var tnsLocations = GetTnsNamesLocations();
+            
+            foreach (var tnsPath in tnsLocations)
+            {
+                if (File.Exists(tnsPath))
+                {
+                    _logger.Debug("  Encontrado tnsnames.ora: {Path}", tnsPath);
+                    var tnsEntries = ParseTnsNames(tnsPath);
+                    connections.AddRange(tnsEntries);
+                }
+            }
+
+            // 2. Agregar conexiones por defecto si no se encontró tnsnames.ora
+            if (connections.Count == 0)
+            {
+                _logger.Debug("  No se encontró tnsnames.ora, usando conexiones por defecto");
+                
+                var defaultServices = new[] { "XE", "ORCL", "NIXFARMA", "NIX", "FARMA" };
+                var defaultPorts = new[] { 1521, 1522, 1526 };
+                var defaultHosts = new[] { "localhost", "127.0.0.1" };
+
+                foreach (var host in defaultHosts)
+                {
+                    foreach (var port in defaultPorts)
+                    {
+                        foreach (var service in defaultServices)
+                        {
+                            connections.Add(new OracleConnectionInfo
+                            {
+                                TnsName = $"{service}_{host}_{port}",
+                                Host = host,
+                                Port = port,
+                                ServiceName = service,
+                                ConnectionString = $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SERVICE_NAME={service})));User Id=/;DBA Privilege=SYSDBA;"
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 3. Agregar variantes con credenciales comunes para cada conexión
+            var connectionsWithCreds = new List<OracleConnectionInfo>();
+            var credentials = new[]
+            {
+                ("", "", true),  // OS Authentication
+                ("system", "oracle", false),
+                ("system", "manager", false),
+                ("nixfarma", "nixfarma", false),
+                ("nix", "nix", false),
+                ("farma", "farma", false)
+            };
+
+            foreach (var conn in connections)
+            {
+                foreach (var (user, pass, osAuth) in credentials)
+                {
+                    var dataSource = $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={conn.Host})(PORT={conn.Port}))(CONNECT_DATA=(SERVICE_NAME={conn.ServiceName})))";
+                    
+                    string connStr;
+                    if (osAuth)
+                    {
+                        connStr = $"Data Source={dataSource};User Id=/;";
+                    }
+                    else
+                    {
+                        connStr = $"Data Source={dataSource};User Id={user};Password={pass};";
+                    }
+
+                    connectionsWithCreds.Add(new OracleConnectionInfo
+                    {
+                        TnsName = conn.TnsName,
+                        Host = conn.Host,
+                        Port = conn.Port,
+                        ServiceName = conn.ServiceName,
+                        ConnectionString = connStr
+                    });
+                }
+            }
+
+            return connectionsWithCreds;
+        }
+
+        private List<string> GetTnsNamesLocations()
+        {
+            var locations = new List<string>();
+
+            // Variable de entorno TNS_ADMIN
+            var tnsAdmin = Environment.GetEnvironmentVariable("TNS_ADMIN");
+            if (!string.IsNullOrEmpty(tnsAdmin))
+            {
+                locations.Add(Path.Combine(tnsAdmin, "tnsnames.ora"));
+            }
+
+            // Variable de entorno ORACLE_HOME
+            var oracleHome = Environment.GetEnvironmentVariable("ORACLE_HOME");
+            if (!string.IsNullOrEmpty(oracleHome))
+            {
+                locations.Add(Path.Combine(oracleHome, "network", "admin", "tnsnames.ora"));
+            }
+
+            // Buscar ORACLE_HOME desde Registry
+            var registryPaths = new[]
+            {
+                @"SOFTWARE\Oracle\KEY_OraClient11g_home1",
+                @"SOFTWARE\WOW6432Node\Oracle\KEY_OraClient11g_home1",
+                @"SOFTWARE\Oracle\KEY_OraDb11g_home1",
+                @"SOFTWARE\WOW6432Node\Oracle\KEY_OraDb11g_home1",
+                @"SOFTWARE\Oracle",
+                @"SOFTWARE\WOW6432Node\Oracle"
+            };
+
+            foreach (var regPath in registryPaths)
+            {
+                try
+                {
+                    using var key = Registry.LocalMachine.OpenSubKey(regPath);
+                    if (key != null)
+                    {
+                        var home = key.GetValue("ORACLE_HOME") as string;
+                        if (!string.IsNullOrEmpty(home))
+                        {
+                            locations.Add(Path.Combine(home, "network", "admin", "tnsnames.ora"));
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Rutas comunes hardcodeadas
+            var commonPaths = new[]
+            {
+                @"C:\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\11.2.0\dbhome_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\12.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\12.2.0\dbhome_1\network\admin\tnsnames.ora",
+                @"C:\app\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\app\oracle\product\12.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oraclexe\app\oracle\product\11.2.0\server\network\admin\tnsnames.ora",
+                @"C:\Program Files\Oracle\network\admin\tnsnames.ora",
+                @"C:\Program Files (x86)\Oracle\network\admin\tnsnames.ora",
+                @"D:\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora"
+            };
+
+            locations.AddRange(commonPaths);
+
+            return locations.Where(p => !string.IsNullOrEmpty(p)).Distinct().ToList();
+        }
+
+        private List<OracleConnectionInfo> ParseTnsNames(string tnsPath)
+        {
+            var entries = new List<OracleConnectionInfo>();
+
+            try
+            {
+                var content = File.ReadAllText(tnsPath);
+                
+                // Regex para parsear entradas TNS
+                var pattern = @"(\w+)\s*=\s*\(DESCRIPTION\s*=.*?HOST\s*=\s*([^\)]+)\).*?PORT\s*=\s*(\d+).*?SERVICE_NAME\s*=\s*([^\)]+)\)";
+                var matches = System.Text.RegularExpressions.Regex.Matches(
+                    content, 
+                    pattern, 
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    var tnsName = match.Groups[1].Value.Trim();
+                    var host = match.Groups[2].Value.Trim();
+                    var port = int.Parse(match.Groups[3].Value.Trim());
+                    var serviceName = match.Groups[4].Value.Trim();
+
+                    _logger.Debug("  TNS Entry: {TnsName} -> {Host}:{Port}/{ServiceName}", tnsName, host, port, serviceName);
+
+                    entries.Add(new OracleConnectionInfo
+                    {
+                        TnsName = tnsName,
+                        Host = host,
+                        Port = port,
+                        ServiceName = serviceName,
+                        ConnectionString = $"Data Source={tnsName};"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning("  Error parseando tnsnames.ora: {Error}", ex.Message);
+            }
+
+            return entries;
         }
 
         private string GetVersionFromExe(string exePath)
