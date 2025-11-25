@@ -75,7 +75,8 @@ namespace FarmacopilotAgent.Uploaders
                 var sharePointPath = $"/Clients/{_farmaciaId}/Exports/{fileName}";
                 
                 // URL de Graph API para subir archivo
-                var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/{_credentials.SharePointSiteId}/drive/root:{sharePointPath}:/content";
+                // URL de Graph API para subir archivo
+                var uploadUrl = $"https://graph.microsoft.com/v1.0/sites/d14f0b31-c267-4493-82ea-02447a8cc665/drive/root:{sharePointPath}:/content";
 
                 using var fileStream = File.OpenRead(localFilePath);
                 using var content = new StreamContent(fileStream);
