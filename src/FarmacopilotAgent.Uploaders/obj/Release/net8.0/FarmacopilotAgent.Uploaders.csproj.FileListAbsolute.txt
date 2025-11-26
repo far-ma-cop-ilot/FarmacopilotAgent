@@ -1,0 +1,16 @@
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\bin\Release\net8.0\FarmacopilotAgent.Uploaders.deps.json
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\bin\Release\net8.0\FarmacopilotAgent.Uploaders.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\bin\Release\net8.0\FarmacopilotAgent.Uploaders.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\bin\Release\net8.0\FarmacopilotAgent.Core.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\bin\Release\net8.0\FarmacopilotAgent.Core.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.csproj.AssemblyReference.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.AssemblyInfoInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.AssemblyInfo.cs
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.csproj.CoreCompileInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.sourcelink.json
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\Farmacop.C2F7A248.Up2Date
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\refint\FarmacopilotAgent.Uploaders.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\FarmacopilotAgent.Uploaders.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Release\net8.0\ref\FarmacopilotAgent.Uploaders.dll

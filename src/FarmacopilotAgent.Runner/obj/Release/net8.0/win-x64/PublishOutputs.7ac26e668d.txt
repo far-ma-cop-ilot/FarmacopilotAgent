@@ -1,0 +1,6 @@
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Runner.pdb
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Core.pdb
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Exporters.pdb
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Uploaders.pdb
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Detection.pdb
+C:\Users\JL273KA\FarmacopilotAgent\test-build\FarmacopilotAgent.Runner.exe
