@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FarmacopilotAgent.Core\FarmacopilotAgent.Core.csproj" />
+    <ProjectReference Include="..\FarmacopilotAgent.Detection\FarmacopilotAgent.Detection.csproj" />
   </ItemGroup>
 
 </Project>

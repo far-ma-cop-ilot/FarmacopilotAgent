@@ -1,0 +1,6 @@
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.csproj.AssemblyReference.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.AssemblyInfoInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.AssemblyInfo.cs
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.csproj.CoreCompileInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Uploaders\obj\Debug\net8.0\FarmacopilotAgent.Uploaders.sourcelink.json

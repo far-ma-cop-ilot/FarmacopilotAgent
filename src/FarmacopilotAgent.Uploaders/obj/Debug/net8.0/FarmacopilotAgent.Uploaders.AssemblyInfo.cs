@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FarmacopilotAgent.Uploaders")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+01a042d05fdf7e10a19867da1b9922bd95f819e8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4b166c2ff5dcedea4f72e7c918ebcf653be5b234")]
 [assembly: System.Reflection.AssemblyProductAttribute("FarmacopilotAgent.Uploaders")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FarmacopilotAgent.Uploaders")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

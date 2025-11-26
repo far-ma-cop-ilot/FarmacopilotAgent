@@ -1,0 +1,16 @@
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\bin\Debug\net8.0\FarmacopilotAgent.Detection.deps.json
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\bin\Debug\net8.0\FarmacopilotAgent.Detection.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\bin\Debug\net8.0\FarmacopilotAgent.Detection.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\bin\Debug\net8.0\FarmacopilotAgent.Core.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\bin\Debug\net8.0\FarmacopilotAgent.Core.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.csproj.AssemblyReference.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.AssemblyInfoInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.AssemblyInfo.cs
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.csproj.CoreCompileInputs.cache
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.sourcelink.json
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\Farmacop.3FB310ED.Up2Date
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\refint\FarmacopilotAgent.Detection.dll
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\FarmacopilotAgent.Detection.pdb
+C:\Users\JL273KA\FarmacopilotAgent\src\FarmacopilotAgent.Detection\obj\Debug\net8.0\ref\FarmacopilotAgent.Detection.dll

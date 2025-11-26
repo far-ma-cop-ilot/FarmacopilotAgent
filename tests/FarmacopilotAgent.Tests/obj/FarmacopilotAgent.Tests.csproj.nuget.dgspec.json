@@ -200,6 +200,9 @@
             "projectReferences": {
               "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj": {
                 "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj"
+              },
+              "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj": {
+                "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj"
               }
             }
           }

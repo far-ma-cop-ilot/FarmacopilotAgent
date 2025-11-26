@@ -104,21 +104,6 @@ namespace FarmacopilotAgent.Uploaders
 
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-                // Implementar política de retry para uploads
-                var retryPolicy = Policy
-                    .HandleResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode && 
-                        (r.StatusCode == System.Net.HttpStatusCode.TooManyRequests || 
-                         r.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
-                         r.StatusCode == System.Net.HttpStatusCode.GatewayTimeout))
-                    .WaitAndRetryAsync(
-                        3,
-                        retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
-                        onRetry: (outcome, timespan, retry, context) =>
-                        {
-                            _logger.Warning("Reintento {Retry} de upload después de {Delay}s", 
-                                retry, timespan.TotalSeconds);
-                        });
-                
                 var response = await _httpClient.PutAsync(uploadUrl, content);
                 
                 if (response.IsSuccessStatusCode)

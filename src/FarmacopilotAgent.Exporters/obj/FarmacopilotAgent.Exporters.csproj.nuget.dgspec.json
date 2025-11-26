@@ -96,6 +96,86 @@
         }
       }
     },
+    "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj",
+        "projectName": "FarmacopilotAgent.Detection",
+        "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj",
+        "packagesPath": "C:\\Users\\JL273KA\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\JL273KA\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj": {
+                "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Microsoft.Data.SqlClient": {
+              "target": "Package",
+              "version": "[5.1.5, )"
+            },
+            "Oracle.ManagedDataAccess.Core": {
+              "target": "Package",
+              "version": "[3.21.130, )"
+            },
+            "Serilog": {
+              "target": "Package",
+              "version": "[3.1.1, )"
+            },
+            "System.ServiceProcess.ServiceController": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.416/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
     "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Exporters\\FarmacopilotAgent.Exporters.csproj": {
       "version": "1.0.0",
       "restore": {
@@ -120,6 +200,9 @@
             "projectReferences": {
               "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj": {
                 "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj"
+              },
+              "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj": {
+                "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj"
               }
             }
           }
