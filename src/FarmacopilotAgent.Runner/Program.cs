@@ -41,6 +41,9 @@ namespace FarmacopilotAgent.Runner
 
             var stopwatch = Stopwatch.StartNew();
 
+            // Declarar statusChecker como nullable para modo test
+            PostgresStatusChecker? statusChecker = null;
+
             // Procesar exportaciones fallidas pendientes
             var failedQueue = new FailedExportQueue(BasePath);
             if (failedQueue.Count > 0)
