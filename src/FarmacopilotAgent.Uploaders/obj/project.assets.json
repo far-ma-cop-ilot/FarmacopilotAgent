@@ -1,0 +1,181 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "FarmacopilotAgent.Core/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "dependencies": {
+          "Npgsql": "8.0.1",
+          "Polly": "8.2.0",
+          "Serilog": "3.1.1",
+          "Serilog.Sinks.Console": "5.0.1",
+          "Serilog.Sinks.File": "5.0.0",
+          "System.Text.Json": "8.0.0"
+        },
+        "compile": {
+          "bin/placeholder/FarmacopilotAgent.Core.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/FarmacopilotAgent.Core.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "FarmacopilotAgent.Core/1.0.0": {
+      "type": "project",
+      "path": "../FarmacopilotAgent.Core/FarmacopilotAgent.Core.csproj",
+      "msbuildProject": "../FarmacopilotAgent.Core/FarmacopilotAgent.Core.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "FarmacopilotAgent.Core >= 1.0.0",
+      "Microsoft.Identity.Client >= 4.59.0",
+      "Polly >= 8.2.0",
+      "Serilog >= 3.1.1"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\JL273KA\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Uploaders\\FarmacopilotAgent.Uploaders.csproj",
+      "projectName": "FarmacopilotAgent.Uploaders",
+      "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Uploaders\\FarmacopilotAgent.Uploaders.csproj",
+      "packagesPath": "C:\\Users\\JL273KA\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Uploaders\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\JL273KA\\AppData\\Roaming\\NuGet\\NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0"
+      ],
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "projectReferences": {
+            "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj": {
+              "projectPath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Core\\FarmacopilotAgent.Core.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "dependencies": {
+          "Microsoft.Identity.Client": {
+            "target": "Package",
+            "version": "[4.59.0, )"
+          },
+          "Polly": {
+            "target": "Package",
+            "version": "[8.2.0, )"
+          },
+          "Serilog": {
+            "target": "Package",
+            "version": "[3.1.1, )"
+          }
+        },
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.416/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  },
+  "logs": [
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.Identity.Client (>= 4.59.0)' for 'net8.0'.",
+      "libraryId": "Microsoft.Identity.Client",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog (>= 3.1.1)' for 'net8.0'.",
+      "libraryId": "Serilog",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Polly (>= 8.2.0)' for 'net8.0'.",
+      "libraryId": "Polly",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.Sinks.Console (>= 5.0.1)' for 'net8.0'.",
+      "libraryId": "Serilog.Sinks.Console",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.Sinks.File (>= 5.0.0)' for 'net8.0'.",
+      "libraryId": "Serilog.Sinks.File",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'System.Text.Json (>= 8.0.0)' for 'net8.0'.",
+      "libraryId": "System.Text.Json",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Npgsql (>= 8.0.1)' for 'net8.0'.",
+      "libraryId": "Npgsql",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}

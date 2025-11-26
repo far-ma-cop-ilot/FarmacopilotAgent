@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "dgSpecHash": "k4ZW+6hFslo=",
+  "success": false,
+  "projectFilePath": "C:\\Users\\JL273KA\\FarmacopilotAgent\\src\\FarmacopilotAgent.Detection\\FarmacopilotAgent.Detection.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Microsoft.Data.SqlClient (>= 5.1.5)' for 'net8.0'.",
+      "libraryId": "Microsoft.Data.SqlClient",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Oracle.ManagedDataAccess.Core (>= 3.21.130)' for 'net8.0'.",
+      "libraryId": "Oracle.ManagedDataAccess.Core",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog (>= 3.1.1)' for 'net8.0'.",
+      "libraryId": "Serilog",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'System.ServiceProcess.ServiceController (>= 8.0.0)' for 'net8.0'.",
+      "libraryId": "System.ServiceProcess.ServiceController",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.Sinks.Console (>= 5.0.1)' for 'net8.0'.",
+      "libraryId": "Serilog.Sinks.Console",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Serilog.Sinks.File (>= 5.0.0)' for 'net8.0'.",
+      "libraryId": "Serilog.Sinks.File",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'System.Text.Json (>= 8.0.0)' for 'net8.0'.",
+      "libraryId": "System.Text.Json",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Npgsql (>= 8.0.1)' for 'net8.0'.",
+      "libraryId": "Npgsql",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    },
+    {
+      "code": "NU1100",
+      "level": "Error",
+      "message": "Unable to resolve 'Polly (>= 8.2.0)' for 'net8.0'.",
+      "libraryId": "Polly",
+      "targetGraphs": [
+        "net8.0"
+      ]
+    }
+  ]
+}

@@ -19,6 +19,8 @@ namespace FarmacopilotAgent.Uploaders
         private readonly ILogger _logger;
         private readonly HttpClient _httpClient;
 
+        private string _erpType = "Unknown";
+
         public SharePointGraphUploader(
             string farmaciaId, 
             GraphCredentialsProvider.GraphCredentials credentials,
@@ -28,6 +30,22 @@ namespace FarmacopilotAgent.Uploaders
             _credentials = credentials;
             _logger = logger;
             _httpClient = new HttpClient();
+        }
+
+        public void SetErpType(string erpType)
+        {
+            _erpType = erpType;
+            _logger.Information("Tipo de ERP configurado para upload: {ErpType}", erpType);
+        }
+
+        private string GetErpFolderName()
+        {
+            return _erpType.ToLower() switch
+            {
+                "nixfarma" => "Nixfarma",
+                "farmatic" => "Farmatic",
+                _ => "Unknown"
+            };
         }
 
         /// <summary>
@@ -71,8 +89,10 @@ namespace FarmacopilotAgent.Uploaders
                 var accessToken = await GetAccessTokenAsync();
                 var fileName = Path.GetFileName(localFilePath);
                 
-                // Construir ruta en SharePoint: /Clients/FAR{ID}/Exports/{fileName}
-                var sharePointPath = $"/Clients/{_farmaciaId}/Exports/{fileName}";
+                // Construir ruta en SharePoint según tipo de ERP
+                // Estructura: /Nixfarma/{farmaciaId}/{fileName} o /Farmatic/{farmaciaId}/{fileName}
+                var erpFolder = GetErpFolderName();
+                var sharePointPath = $"/{erpFolder}/{_farmaciaId}/{fileName}";
                 
                 // URL de Graph API para subir archivo
                 // URL de Graph API para subir archivo

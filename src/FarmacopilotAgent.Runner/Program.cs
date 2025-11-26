@@ -88,6 +88,11 @@ namespace FarmacopilotAgent.Runner
                 // Crear RetryManager
                 var retryManager = new RetryManager(Log.Logger);
 
+                // Test Mode: Validacion PostgreSQL deshabilitado
+                Log.Warning("⚠️ TEST MODE: Validación PostgreSQL deshabilitada");
+                Log.Information("Procediendo directamente a detección de ERP y exportación...");
+                ClientStatus? clientStatus = null;
+                /*
                 // Verificar estado del cliente desde PostgreSQL con reintentos
                 Log.Information("Verificando estado del cliente en PostgreSQL...");
                 var postgresConnection = configManager.GetDecryptedPostgresConnection(config);
@@ -133,7 +138,7 @@ namespace FarmacopilotAgent.Runner
                             clientStatus.SubscriptionExpiresAt.Value.ToString("yyyy-MM-dd"), daysRemaining);
                     }
                 }
-            
+                */
                 // Obtener información de última exportación
                 var lastExportManager = new LastExportManager(BasePath, Log.Logger);
                 var lastExport = await lastExportManager.GetLastExportTimestampAsync();
@@ -216,7 +221,13 @@ namespace FarmacopilotAgent.Runner
                     Log.Logger
                 );
                 
+                // Configurar tipo de ERP para determinar carpeta en SharePoint
+                uploader.SetErpType(config.ErpType);
+                
                 Log.Information("✓ Credenciales Graph API cargadas");
+                Log.Information("  - Carpeta destino: /{ErpFolder}/{FarmaciaId}/", 
+                    config.ErpType == "nixfarma" ? "Nixfarma" : "Farmatic", 
+                    config.FarmaciaId);
                 
                 // EXPORTAR CADA TABLA (Estrategia RAW: SELECT * sin transformaciones)
                 Log.Information("═══════════════════════════════════════════════════════════");
