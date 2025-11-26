@@ -78,7 +78,7 @@ namespace FarmacopilotAgent.Core.Utils
             _logger.Information("Total líneas: {Total}. Líneas por partición: {PerPart}", 
                 totalLines, linesPerPartition);
             
-            await using var reader = new StreamReader(filePath);
+            using var reader = new StreamReader(filePath);
             var header = await reader.ReadLineAsync();
             
             var partNumber = 1;
@@ -127,7 +127,7 @@ namespace FarmacopilotAgent.Core.Utils
         private async Task<int> CountLinesAsync(string filePath)
         {
             var lineCount = 0;
-            await using var reader = new StreamReader(filePath);
+            using var reader = new StreamReader(filePath);
             
             while (await reader.ReadLineAsync() != null)
             {

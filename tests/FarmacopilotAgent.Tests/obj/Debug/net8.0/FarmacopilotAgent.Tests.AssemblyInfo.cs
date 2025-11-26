@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FarmacopilotAgent.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9d36cf064d3b291b9dd26239298662c533f66c27")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+01a042d05fdf7e10a19867da1b9922bd95f819e8")]
 [assembly: System.Reflection.AssemblyProductAttribute("FarmacopilotAgent.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FarmacopilotAgent.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

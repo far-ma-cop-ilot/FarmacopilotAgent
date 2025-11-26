@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Polly;
-using Polly.CircuitBreaker;
+using Polly.Retry;
 using Serilog;
 
 namespace FarmacopilotAgent.Core.Utils
@@ -30,17 +30,17 @@ namespace FarmacopilotAgent.Core.Utils
                     });
 
             // Política específica para base de datos con circuit breaker
+            // Política específica para base de datos (sin circuit breaker para simplificar)
             _dbRetryPolicy = Policy
                 .Handle<Exception>()
-                .CircuitBreakerAsync(
-                    handledEventsAllowedBeforeBreaking: 3,
-                    durationOfBreak: TimeSpan.FromMinutes(1),
-                    onBreak: (exception, duration) =>
+                .WaitAndRetryAsync(
+                    retryCount: 5,
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                    onRetry: (exception, timeSpan, retry, ctx) =>
                     {
-                        _logger.Error("Circuit breaker abierto por {Duration}s", duration.TotalSeconds);
-                    },
-                    onReset: () => _logger.Information("Circuit breaker reseteado"))
-                .WrapAsync(_retryPolicy);
+                        _logger.Warning("Reintento DB {Retry} después de {Delay}ms. Error: {Error}", 
+                            retry, timeSpan.TotalMilliseconds, exception.Message);
+                    });
 
             // Política para uploads con timeouts más largos
             _uploadRetryPolicy = Policy

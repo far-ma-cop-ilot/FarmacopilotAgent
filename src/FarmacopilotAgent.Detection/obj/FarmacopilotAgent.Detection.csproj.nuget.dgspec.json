@@ -19,6 +19,9 @@
         "originalTargetFrameworks": [
           "net8.0"
         ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
         "frameworks": {
           "net8.0": {
             "targetAlias": "net8.0",
@@ -42,11 +45,15 @@
           "dependencies": {
             "Npgsql": {
               "target": "Package",
-              "version": "[8.0.1, )"
+              "version": "[8.0.5, )"
             },
             "Polly": {
               "target": "Package",
               "version": "[8.2.0, )"
+            },
+            "Polly.Extensions.Http": {
+              "target": "Package",
+              "version": "[3.0.0, )"
             },
             "Serilog": {
               "target": "Package",
@@ -60,9 +67,13 @@
               "target": "Package",
               "version": "[5.0.0, )"
             },
-            "System.Text.Json": {
+            "System.Security.Cryptography.ProtectedData": {
               "target": "Package",
               "version": "[8.0.0, )"
+            },
+            "System.Text.Json": {
+              "target": "Package",
+              "version": "[8.0.5, )"
             }
           },
           "imports": [
@@ -100,6 +111,9 @@
         "originalTargetFrameworks": [
           "net8.0"
         ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
         "frameworks": {
           "net8.0": {
             "targetAlias": "net8.0",
