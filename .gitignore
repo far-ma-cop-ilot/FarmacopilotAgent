@@ -1,0 +1,11 @@
+bin/
+obj/
+publish/
+*.exe
+*.dll
+*.pdb
+*.user
+*.suo
+.vs/
+packages/
+TestResults/
