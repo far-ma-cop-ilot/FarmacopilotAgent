@@ -75,17 +75,35 @@ namespace SetupWizardConsole
             Console.WriteLine("═══════════════════════════════════════════════════════════════");
             Console.WriteLine();
 
-            string connectionString = BuildConnectionString(erpInfo);
+            string connectionString = "";
             bool connectionOk = false;
+            string[] possibleDbNames = { "Farmatic", "FARMATIC", "CGCOF", "cgcof" };
 
-            // Primero intentar sin credenciales (Windows Auth para SQL Server)
+            // Primero intentar detectar BD con Windows Auth
             if (erpInfo.DbType == "sqlserver")
             {
                 Console.WriteLine("Probando conexión con autenticación de Windows...");
-                connectionOk = TestSqlServerConnection(connectionString);
+                foreach (var dbName in possibleDbNames)
+                {
+                    try
+                    {
+                        var testConn = $"Server={erpInfo.DbInstance ?? "localhost"};Database={dbName};Integrated Security=true;TrustServerCertificate=true;Connection Timeout=3;";
+                        using var conn = new SqlConnection(testConn);
+                        conn.Open();
+                        erpInfo.DbName = dbName;
+                        connectionString = testConn;
+                        connectionOk = true;
+                        Console.WriteLine($"  [✓] Conectado a: {dbName}");
+                        break;
+                    }
+                    catch { }
+                }
+                
+                if (!connectionOk)
+                    Console.WriteLine("  [!] Windows Auth no disponible");
             }
 
-            // Si no funciona, pedir credenciales
+            // Si no funciona, pedir credenciales y probar cada BD
             if (!connectionOk)
             {
                 Console.WriteLine();
@@ -96,12 +114,31 @@ namespace SetupWizardConsole
                 string password = ReadPassword();
                 Console.WriteLine();
 
-                connectionString = BuildConnectionString(erpInfo, username, password);
-                
                 if (erpInfo.DbType == "sqlserver")
-                    connectionOk = TestSqlServerConnection(connectionString);
+                {
+                    Console.WriteLine("Buscando base de datos...");
+                    foreach (var dbName in possibleDbNames)
+                    {
+                        try
+                        {
+                            var testConn = $"Server={erpInfo.DbInstance ?? "localhost"};Database={dbName};User Id={username};Password={password};TrustServerCertificate=true;Connection Timeout=3;";
+                            connectionOk = TestSqlServerConnection(testConn);
+                            if (connectionOk)
+                            {
+                                erpInfo.DbName = dbName;
+                                connectionString = testConn;
+                                Console.WriteLine($"  [✓] Base de datos encontrada: {dbName}");
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+                }
                 else
+                {
+                    connectionString = BuildConnectionString(erpInfo, username, password);
                     connectionOk = TestOracleConnection(connectionString);
+                }
             }
 
             if (!connectionOk)
@@ -228,35 +265,40 @@ namespace SetupWizardConsole
                 catch { }
             }
 
-            // Buscar SQL Server con base de datos CGCOF
+            // Buscar SQL Server con base de datos Farmatic (puede llamarse CGCOF o Farmatic)
             Console.WriteLine("    Buscando SQL Server con BD Farmatic...");
             var sqlInstances = GetSqlServerInstances();
+            string[] possibleDbNames = { "Farmatic", "FARMATIC", "CGCOF", "cgcof" };
+            
             foreach (var instance in sqlInstances)
             {
-                try
+                foreach (var dbName in possibleDbNames)
                 {
-                    var connStr = $"Server={instance};Database=CGCOF;Integrated Security=true;TrustServerCertificate=true;Connection Timeout=5;";
-                    using var conn = new SqlConnection(connStr);
-                    conn.Open();
-                    
-                    // Verificar tabla característica de Farmatic
-                    using var cmd = new SqlCommand("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ventas'", conn);
-                    var count = (int)cmd.ExecuteScalar();
-                    if (count > 0)
+                    try
                     {
-                        Console.WriteLine($"    [✓] SQL Server: {instance}/CGCOF");
-                        return new ErpInfo
+                        var connStr = $"Server={instance};Database={dbName};Integrated Security=true;TrustServerCertificate=true;Connection Timeout=3;";
+                        using var conn = new SqlConnection(connStr);
+                        conn.Open();
+                        
+                        // Verificar tabla característica de Farmatic
+                        using var cmd = new SqlCommand("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ventas'", conn);
+                        var count = (int)cmd.ExecuteScalar();
+                        if (count > 0)
                         {
-                            ErpType = "Farmatic",
-                            Version = "16.00",
-                            DbType = "sqlserver",
-                            DbInstance = instance,
-                            DbName = "CGCOF",
-                            DetectionMethod = "database"
-                        };
+                            Console.WriteLine($"    [✓] SQL Server: {instance}/{dbName}");
+                            return new ErpInfo
+                            {
+                                ErpType = "Farmatic",
+                                Version = "16.00",
+                                DbType = "sqlserver",
+                                DbInstance = instance,
+                                DbName = dbName,
+                                DetectionMethod = "database"
+                            };
+                        }
                     }
+                    catch { }
                 }
-                catch { }
             }
 
             // === DETECTAR NIXFARMA ===
@@ -390,7 +432,7 @@ namespace SetupWizardConsole
             if (erp.DbType == "sqlserver")
             {
                 var server = erp.DbInstance ?? "localhost";
-                var database = erp.DbName ?? "CGCOF";
+                var database = erp.DbName ?? "Farmatic";  // Cambiado de CGCOF a Farmatic como default
                 
                 if (string.IsNullOrEmpty(username))
                     return $"Server={server};Database={database};Integrated Security=true;TrustServerCertificate=true;";
