@@ -485,21 +485,25 @@ namespace SetupWizardConsole
 
         static Dictionary<string, object> CreateConfig(string farmaciaId, ErpInfo erp, string connectionString)
         {
+            // NOMBRES REALES de tablas en BD Farmatic (PascalCase, esquema dbo)
             var tables = erp.ErpType == "Farmatic" 
                 ? new List<object>
                 {
-                    new { TableName = "ventas", IncrementalColumn = "fecha", Enabled = true, Priority = 10 },
-                    new { TableName = "linea venta", IncrementalColumn = "fecha", Enabled = true, Priority = 10 },
-                    new { TableName = "articu", IncrementalColumn = (string?)null, Enabled = true, Priority = 50 },
-                    new { TableName = "proveedor", IncrementalColumn = (string?)null, Enabled = true, Priority = 60 },
-                    new { TableName = "recep", IncrementalColumn = (string?)null, Enabled = true, Priority = 40 },
-                    new { TableName = "vendedor", IncrementalColumn = (string?)null, Enabled = true, Priority = 70 },
-                    new { TableName = "albaran dev", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "coste venta", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "linea albaran", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "venta aux", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "vlab", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "esarti", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 }
+                    new { TableName = "Venta", IncrementalColumn = (string?)null, Enabled = true, Priority = 10, Notes = "Cabecera de ventas" },
+                    new { TableName = "LineaVenta", IncrementalColumn = (string?)null, Enabled = true, Priority = 10, Notes = "Detalle de ventas" },
+                    new { TableName = "Articu", IncrementalColumn = (string?)null, Enabled = true, Priority = 50, Notes = "Maestro de artículos" },
+                    new { TableName = "Proveedor", IncrementalColumn = (string?)null, Enabled = true, Priority = 60, Notes = "Maestro de proveedores" },
+                    new { TableName = "Recep", IncrementalColumn = (string?)null, Enabled = true, Priority = 40, Notes = "Recepciones de mercancía" },
+                    new { TableName = "LineaRecep", IncrementalColumn = (string?)null, Enabled = true, Priority = 40, Notes = "Detalle de recepciones" },
+                    new { TableName = "Vendedor", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Maestro de vendedores" },
+                    new { TableName = "AlbaranDevol", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Albaranes de devolución" },
+                    new { TableName = "CosteVenta", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Costes de venta" },
+                    new { TableName = "LineaAlbaran", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Líneas de albarán" },
+                    new { TableName = "VentaAux", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Ventas auxiliares" },
+                    new { TableName = "Laboratorio", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Maestro de laboratorios" },
+                    new { TableName = "Estarti", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Estadísticas de artículos" },
+                    new { TableName = "Familia", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Familias de artículos" },
+                    new { TableName = "Lote", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Lotes de artículos" }
                 }
                 : new List<object>
                 {
