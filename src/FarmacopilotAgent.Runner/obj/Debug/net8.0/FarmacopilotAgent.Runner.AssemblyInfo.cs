@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FarmacopilotAgent.Runner")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+080e517055433524c5bc3a74e2054f1bc1e59ea5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+36d52ec4fc2e7e8341254d265b5f4eb4a097febd")]
 [assembly: System.Reflection.AssemblyProductAttribute("FarmacopilotAgent.Runner")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FarmacopilotAgent.Runner")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

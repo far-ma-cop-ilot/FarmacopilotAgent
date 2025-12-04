@@ -140,35 +140,41 @@ namespace SetupWizardConsole
                 Console.WriteLine("Configurando conexión Oracle...");
                 Console.WriteLine();
                 
-                // Intentar primero con credenciales conocidas de Nixfarma
-                string[] defaultUsers = { "consu", "nixfarma", "nix", "system" };
-                string[] defaultPasswords = { "consu", "nixfarma", "nix", "manager" };
-                string[] tnsNames = { "NIXFARMA", "NIX", "XE", "ORCL" };
+                // Leer tnsnames.ora para obtener el descriptor completo
+                var tnsConfig = ReadTnsNamesConfig();
                 
-                // Si ya detectamos el TNS, usarlo primero
-                if (!string.IsNullOrEmpty(erpInfo.TnsName))
-                {
-                    tnsNames = new[] { erpInfo.TnsName }.Concat(tnsNames.Where(t => t != erpInfo.TnsName)).ToArray();
-                }
+                string[] defaultUsers = { "consu", "nixfarma", "nix" };
+                string[] defaultPasswords = { "consu", "nixfarma", "nix" };
                 
                 Console.WriteLine("Probando conexiones conocidas de Nixfarma...");
                 
-                foreach (var tns in tnsNames)
+                // Primero intentar con descriptor completo del tnsnames.ora
+                if (tnsConfig != null)
                 {
-                    foreach (var user in defaultUsers)
+                    Console.WriteLine($"  Configuración encontrada: Host={tnsConfig.Host}, Port={tnsConfig.Port}, Service={tnsConfig.ServiceName}");
+                    
+                    foreach (var i in Enumerable.Range(0, defaultUsers.Length))
                     {
-                        var pass = defaultPasswords[Array.IndexOf(defaultUsers, user)];
+                        var user = defaultUsers[i];
+                        var pass = defaultPasswords[i];
+                        
+                        // Construir connection string con descriptor completo (no depende de TNS_ADMIN)
+                        var dataSource = $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={tnsConfig.Host})(PORT={tnsConfig.Port}))(CONNECT_DATA=(SERVICE_NAME={tnsConfig.ServiceName})))";
+                        var testConn = $"Data Source={dataSource};User Id={user};Password={pass};";
+                        
+                        Console.Write($"  Probando {user}@{tnsConfig.Host}:{tnsConfig.Port}/{tnsConfig.ServiceName}... ");
+                        
                         try
                         {
-                            var testConn = $"Data Source={tns};User Id={user};Password={pass};";
-                            Console.Write($"  Probando {user}@{tns}... ");
-                            
                             if (TestOracleConnectionAndSchema(testConn, out string? detectedSchema))
                             {
                                 connectionString = testConn;
                                 connectionOk = true;
                                 erpInfo.DbSchema = detectedSchema ?? "APPUL";
-                                erpInfo.TnsName = tns;
+                                erpInfo.TnsName = "NIXFARMA";
+                                erpInfo.OracleHost = tnsConfig.Host;
+                                erpInfo.OraclePort = tnsConfig.Port;
+                                erpInfo.OracleServiceName = tnsConfig.ServiceName;
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.WriteLine($"[✓] Conectado! Esquema: {erpInfo.DbSchema}");
                                 Console.ResetColor();
@@ -179,12 +185,63 @@ namespace SetupWizardConsole
                                 Console.WriteLine("[✗]");
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            Console.WriteLine("[✗]");
+                            Console.WriteLine($"[✗] {ex.Message.Split('\n')[0]}");
                         }
                     }
-                    if (connectionOk) break;
+                }
+                
+                // Si no funciona con tnsnames.ora, intentar localhost
+                if (!connectionOk)
+                {
+                    Console.WriteLine("  Probando conexión localhost...");
+                    string[] defaultHosts = { "localhost", "127.0.0.1", "W01" };
+                    string[] defaultServices = { "ORACLE11", "XE", "ORCL", "NIXFARMA" };
+                    
+                    foreach (var host in defaultHosts)
+                    {
+                        foreach (var service in defaultServices)
+                        {
+                            foreach (var i in Enumerable.Range(0, defaultUsers.Length))
+                            {
+                                var user = defaultUsers[i];
+                                var pass = defaultPasswords[i];
+                                
+                                var dataSource = $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT=1521))(CONNECT_DATA=(SERVICE_NAME={service})))";
+                                var testConn = $"Data Source={dataSource};User Id={user};Password={pass};";
+                                
+                                Console.Write($"  Probando {user}@{host}:1521/{service}... ");
+                                
+                                try
+                                {
+                                    if (TestOracleConnectionAndSchema(testConn, out string? detectedSchema))
+                                    {
+                                        connectionString = testConn;
+                                        connectionOk = true;
+                                        erpInfo.DbSchema = detectedSchema ?? "APPUL";
+                                        erpInfo.OracleHost = host;
+                                        erpInfo.OraclePort = 1521;
+                                        erpInfo.OracleServiceName = service;
+                                        Console.ForegroundColor = ConsoleColor.Green;
+                                        Console.WriteLine($"[✓] Conectado! Esquema: {erpInfo.DbSchema}");
+                                        Console.ResetColor();
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("[✗]");
+                                    }
+                                }
+                                catch
+                                {
+                                    Console.WriteLine("[✗]");
+                                }
+                            }
+                            if (connectionOk) break;
+                        }
+                        if (connectionOk) break;
+                    }
                 }
                 
                 // Si no funciona, pedir credenciales manualmente
@@ -193,22 +250,30 @@ namespace SetupWizardConsole
                     Console.WriteLine();
                     Console.WriteLine("  [!] No se pudo conectar automáticamente");
                     Console.WriteLine();
-                    Console.WriteLine("Se requieren credenciales de Oracle:");
-                    Console.Write("  TNS Name (ej: NIXFARMA): ");
-                    string tnsName = Console.ReadLine() ?? "NIXFARMA";
+                    Console.WriteLine("Se requieren datos de conexión Oracle:");
+                    Console.Write("  Host (ej: W01 o localhost): ");
+                    string host = Console.ReadLine() ?? "localhost";
+                    Console.Write("  Puerto (ej: 1521): ");
+                    string portStr = Console.ReadLine() ?? "1521";
+                    int port = int.TryParse(portStr, out var p) ? p : 1521;
+                    Console.Write("  Service Name (ej: ORACLE11): ");
+                    string serviceName = Console.ReadLine() ?? "ORACLE11";
                     Console.Write("  Usuario: ");
                     string username = Console.ReadLine() ?? "";
                     Console.Write("  Contraseña: ");
                     string password = ReadPassword();
                     Console.WriteLine();
 
-                    connectionString = $"Data Source={tnsName};User Id={username};Password={password};";
+                    var dataSource = $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SERVICE_NAME={serviceName})))";
+                    connectionString = $"Data Source={dataSource};User Id={username};Password={password};";
                     
                     if (TestOracleConnectionAndSchema(connectionString, out string? schema))
                     {
                         connectionOk = true;
                         erpInfo.DbSchema = schema ?? "APPUL";
-                        erpInfo.TnsName = tnsName;
+                        erpInfo.OracleHost = host;
+                        erpInfo.OraclePort = port;
+                        erpInfo.OracleServiceName = serviceName;
                         Console.WriteLine($"  [✓] Conectado! Esquema: {erpInfo.DbSchema}");
                     }
                 }
@@ -756,6 +821,139 @@ namespace SetupWizardConsole
             Console.WriteLine("Presione cualquier tecla para salir...");
             Console.ReadKey();
         }
+
+        static TnsConfig? ReadTnsNamesConfig()
+        {
+            // Buscar tnsnames.ora en ubicaciones conocidas
+            string[] tnsLocations = {
+                @"C:\Oracle\Ora11\NETWORK\ADMIN\tnsnames.ora",
+                @"C:\Oracle\Ora11Cli32\NETWORK\ADMIN\tnsnames.ora",
+                @"C:\orant\NET80\ADMIN\tnsnames.ora",
+                @"C:\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\11.2.0\dbhome_1\network\admin\tnsnames.ora"
+            };
+
+            // Agregar desde variables de entorno si existen
+            var tnsAdmin = Environment.GetEnvironmentVariable("TNS_ADMIN");
+            if (!string.IsNullOrEmpty(tnsAdmin))
+            {
+                tnsLocations = new[] { Path.Combine(tnsAdmin, "tnsnames.ora") }.Concat(tnsLocations).ToArray();
+            }
+            var oracleHome = Environment.GetEnvironmentVariable("ORACLE_HOME");
+            if (!string.IsNullOrEmpty(oracleHome))
+            {
+                tnsLocations = new[] { Path.Combine(oracleHome, "network", "admin", "tnsnames.ora") }.Concat(tnsLocations).ToArray();
+            }
+
+            foreach (var tnsPath in tnsLocations)
+            {
+                if (File.Exists(tnsPath))
+                {
+                    Console.WriteLine($"  Leyendo tnsnames.ora: {tnsPath}");
+                    try
+                    {
+                        var content = File.ReadAllText(tnsPath);
+                        return ParseTnsNames(content);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  Error leyendo tnsnames.ora: {ex.Message}");
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        static TnsConfig? ParseTnsNames(string content)
+        {
+            // Buscar entrada NIXFARMA
+            var lines = content.Split('\n');
+            bool inNixfarma = false;
+            string host = "";
+            int port = 1521;
+            string serviceName = "";
+            string? instanceName = null;
+            int parenCount = 0;
+
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.Trim().ToUpper();
+                
+                // Detectar inicio de entrada NIXFARMA
+                if (line.StartsWith("NIXFARMA") && line.Contains("="))
+                {
+                    inNixfarma = true;
+                    parenCount = 0;
+                }
+                
+                if (inNixfarma)
+                {
+                    // Contar paréntesis para saber cuándo termina la entrada
+                    parenCount += line.Count(c => c == '(');
+                    parenCount -= line.Count(c => c == ')');
+                    
+                    // Extraer HOST
+                    if (line.Contains("HOST") && line.Contains("="))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(line, @"HOST\s*=\s*([^\)]+)");
+                        if (match.Success)
+                        {
+                            host = match.Groups[1].Value.Trim();
+                        }
+                    }
+                    
+                    // Extraer PORT
+                    if (line.Contains("PORT") && line.Contains("="))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(line, @"PORT\s*=\s*(\d+)");
+                        if (match.Success)
+                        {
+                            port = int.Parse(match.Groups[1].Value);
+                        }
+                    }
+                    
+                    // Extraer SERVICE_NAME
+                    if (line.Contains("SERVICE_NAME") && line.Contains("="))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(line, @"SERVICE_NAME\s*=\s*([^\)]+)");
+                        if (match.Success)
+                        {
+                            serviceName = match.Groups[1].Value.Trim();
+                        }
+                    }
+                    
+                    // Extraer INSTANCE_NAME (opcional)
+                    if (line.Contains("INSTANCE_NAME") && line.Contains("="))
+                    {
+                        var match = System.Text.RegularExpressions.Regex.Match(line, @"INSTANCE_NAME\s*=\s*([^\)]+)");
+                        if (match.Success)
+                        {
+                            instanceName = match.Groups[1].Value.Trim();
+                        }
+                    }
+                    
+                    // Si terminó la entrada NIXFARMA
+                    if (parenCount <= 0 && !string.IsNullOrEmpty(host))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(serviceName))
+            {
+                return new TnsConfig
+                {
+                    Host = host,
+                    Port = port,
+                    ServiceName = serviceName,
+                    InstanceName = instanceName
+                };
+            }
+
+            return null;
+        }
     }
 
     class ErpInfo
@@ -769,5 +967,16 @@ namespace SetupWizardConsole
         public string? DbName { get; set; }
         public string? TnsName { get; set; }
         public string? DbSchema { get; set; }
+        public string? OracleHost { get; set; }
+        public int OraclePort { get; set; } = 1521;
+        public string? OracleServiceName { get; set; }
+    }
+
+    class TnsConfig
+    {
+        public string Host { get; set; } = "localhost";
+        public int Port { get; set; } = 1521;
+        public string ServiceName { get; set; } = "";
+        public string? InstanceName { get; set; }
     }
 }
