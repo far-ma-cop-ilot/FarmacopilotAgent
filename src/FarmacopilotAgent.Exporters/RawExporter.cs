@@ -18,7 +18,7 @@ namespace FarmacopilotAgent.Exporters
     /// <summary>
     /// Exportador genérico RAW que extrae SELECT * de cualquier tabla
     /// sin transformaciones. Para uso con Fabric lakehouse Bronze.
-    /// Incluye: detección automática de columnas timestamp, CDC/Change Tracking, compresión y particionado.
+    /// Soporta Oracle (Nixfarma con esquema APPUL) y SQL Server (Farmatic).
     /// </summary>
     public class RawExporter : IExporter
     {
@@ -62,7 +62,6 @@ namespace FarmacopilotAgent.Exporters
 
         public async Task<ErpInfo> DetectErpInfoAsync()
         {
-            // Implementar detección básica según tipo de conexión
             var dbType = _connection.GetType().Name.Contains("Oracle") ? "Oracle" : "SQL Server";
             
             return new ErpInfo
@@ -73,7 +72,7 @@ namespace FarmacopilotAgent.Exporters
         }
 
         /// <summary>
-        /// Exporta datos con toda la pipeline de optimización (timestamp detection, CDC/CT, compresión, particionado)
+        /// Exporta datos con toda la pipeline de optimización
         /// </summary>
         public async Task<ExportResult> ExportDataAsync(DateTime? lastExportTimestamp = null)
         {
@@ -81,7 +80,6 @@ namespace FarmacopilotAgent.Exporters
             var totalRows = 0;
             var failedTables = new List<string>();
             
-            // Obtener lista de tablas desde config
             var configManager = new ConfigManager(@"C:\FarmacopilotAgent", _logger);
             var config = await configManager.LoadConfigAsync();
             
@@ -96,11 +94,10 @@ namespace FarmacopilotAgent.Exporters
             {
                 try
                 {
-                    // Manejar nombres con espacios (Farmatic)
-                    var sanitizedTableName = table.TableName.Replace(" ", "_");
+                    // Extraer nombre simple para el archivo (sin esquema)
+                    var tableNameForFile = GetTableNameWithoutSchema(table.TableName);
                     
-                    _logger.Information("Exportando tabla {Table} ({Sanitized})", 
-                        table.TableName, sanitizedTableName);
+                    _logger.Information("Exportando tabla {Table}", table.TableName);
                     
                     var result = await ExportTableRawAsync(
                         table.TableName,
@@ -111,7 +108,6 @@ namespace FarmacopilotAgent.Exporters
                     results.Add(result);
                     totalRows += result.RowsExported;
                     
-                    // Progress reporting
                     var progress = (results.Count * 100) / tablesToExport.Count();
                     _logger.Information("Progreso: {Progress}% completado", progress);
                 }
@@ -133,20 +129,33 @@ namespace FarmacopilotAgent.Exporters
         }
 
         /// <summary>
-        /// Exporta una tabla con optimizaciones de Fase 4 (timestamp detection, CDC/CT)
+        /// Extrae el nombre de tabla sin el esquema (APPUL.AH_VENTAS -> AH_VENTAS)
+        /// </summary>
+        private string GetTableNameWithoutSchema(string fullTableName)
+        {
+            if (fullTableName.Contains("."))
+            {
+                return fullTableName.Split('.').Last();
+            }
+            return fullTableName;
+        }
+
+        /// <summary>
+        /// Exporta una tabla individual
         /// </summary>
         public async Task<ExportResult> ExportTableRawAsync(
             string tableName,
             string? incrementalColumn,
             DateTime? lastExportTimestamp)
         {
-            var sanitizedTableName = tableName.Replace(" ", "_");
-            var fileName = $"{sanitizedTableName}_{_farmaciaId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            // Nombre para archivo (sin esquema, sin espacios)
+            var tableNameForFile = GetTableNameWithoutSchema(tableName).Replace(" ", "_");
+            var fileName = $"{tableNameForFile}_{_farmaciaId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
             var filePath = Path.Combine(_outputPath, fileName);
 
             _logger.Information("Exportando {Table} a {File}", tableName, fileName);
 
-            // ✅ FASE 4.1: Detectar automáticamente columna timestamp si no está especificada
+            // Detectar columna timestamp si no está especificada
             if (string.IsNullOrEmpty(incrementalColumn))
             {
                 var detector = new TimestampColumnDetector(_logger);
@@ -154,80 +163,14 @@ namespace FarmacopilotAgent.Exporters
                 
                 if (!string.IsNullOrEmpty(incrementalColumn))
                 {
-                    _logger.Information("Columna incremental detectada automáticamente: {Column}", 
-                        incrementalColumn);
-                }
-                else
-                {
-                    _logger.Information("No se detectó columna timestamp. Exportación completa (SELECT *)");
+                    _logger.Information("Columna incremental detectada automáticamente: {Column}", incrementalColumn);
                 }
             }
 
-            // ✅ FASE 4.1: Usar CDC/Change Tracking si está disponible
-            string query;
-            bool usedAdvancedTracking = false;
+            // Construir query
+            string query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
             
-            if (_connection.GetType().Name.Contains("Oracle"))
-            {
-                // Oracle: intentar usar CDC (Change Data Capture)
-                var cdcDetector = new OracleCdcDetector(_logger);
-                var cdcEnabled = await cdcDetector.IsCdcEnabledAsync(
-                    (Oracle.ManagedDataAccess.Client.OracleConnection)_connection, 
-                    tableName);
-                
-                if (cdcEnabled)
-                {
-                    _logger.Information("✓ Usando Oracle CDC para extracción incremental");
-                    var lastScn = await LoadLastScnAsync(tableName);
-                    query = await cdcDetector.GetChangesSinceScnAsync(
-                        (Oracle.ManagedDataAccess.Client.OracleConnection)_connection, 
-                        tableName, 
-                        lastScn);
-                    
-                    var currentScn = await cdcDetector.GetCurrentScnAsync(
-                        (Oracle.ManagedDataAccess.Client.OracleConnection)_connection);
-                    await SaveLastScnAsync(tableName, currentScn);
-                    usedAdvancedTracking = true;
-                }
-                else
-                {
-                    query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
-                }
-            }
-            else
-            {
-                // SQL Server: intentar usar Change Tracking
-                var changeTracker = new SqlServerChangeTracker(_logger);
-                var trackingEnabled = await changeTracker.IsTableTrackedAsync(
-                    (Microsoft.Data.SqlClient.SqlConnection)_connection, 
-                    tableName);
-                
-                if (trackingEnabled)
-                {
-                    _logger.Information("✓ Usando SQL Server Change Tracking para extracción incremental");
-                    var lastVersion = await LoadLastChangeVersionAsync(tableName);
-                    query = changeTracker.BuildChangeTrackingQuery(tableName, lastVersion);
-                    
-                    var currentVersion = await changeTracker.GetCurrentVersionAsync(
-                        (Microsoft.Data.SqlClient.SqlConnection)_connection);
-                    await SaveLastChangeVersionAsync(tableName, currentVersion);
-                    usedAdvancedTracking = true;
-                }
-                else
-                {
-                    query = BuildRawQuery(tableName, incrementalColumn, lastExportTimestamp);
-                }
-            }
-            
-            if (!usedAdvancedTracking && !string.IsNullOrEmpty(incrementalColumn))
-            {
-                _logger.Information("Usando extracción incremental tradicional (columna: {Column})", 
-                    incrementalColumn);
-            }
-            else if (!usedAdvancedTracking)
-            {
-                _logger.Information("Usando extracción completa (SELECT * sin filtros)");
-            }
+            _logger.Debug("Query: {Query}", query);
 
             // Ejecutar exportación
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -236,9 +179,8 @@ namespace FarmacopilotAgent.Exporters
 
             if (rowCount == 0)
             {
-                _logger.Information("No hay datos nuevos para exportar");
+                _logger.Information("No hay datos nuevos para exportar en {Table}", tableName);
                 
-                // Eliminar archivo vacío
                 if (File.Exists(filePath))
                     File.Delete(filePath);
                 
@@ -276,19 +218,18 @@ namespace FarmacopilotAgent.Exporters
                 FileSizeBytes = fileInfo.Length,
                 DurationMs = stopwatch.ElapsedMilliseconds,
                 ExportType = string.IsNullOrEmpty(incrementalColumn) ? "full" : "incremental",
-                ColumnCount = 0 // Se actualiza en ExportToCsvAsync si es necesario
+                ColumnCount = 0
             };
         }
 
         /// <summary>
-        /// ✅ FASE 4.2: Exportar con compresión y particionado automático
+        /// Exportar con compresión y particionado automático
         /// </summary>
         public async Task<List<ExportResult>> ExportTableRawWithCompressionAsync(
             string tableName,
             string? incrementalColumn,
             DateTime? lastExportTimestamp)
         {
-            // Exportar normalmente primero
             var baseResult = await ExportTableRawAsync(tableName, incrementalColumn, lastExportTimestamp);
             
             if (!baseResult.Success || baseResult.RowsExported == 0)
@@ -299,7 +240,7 @@ namespace FarmacopilotAgent.Exporters
             var results = new List<ExportResult>();
             var compressor = new FileCompressor(_logger);
             
-            // ✅ FASE 4.2: Particionar si es necesario (archivos >100MB)
+            // Particionar si es necesario (archivos >100MB)
             var partitions = await compressor.PartitionIfNeededAsync(baseResult.FilePath);
             
             if (partitions.Count > 1)
@@ -308,7 +249,7 @@ namespace FarmacopilotAgent.Exporters
                     tableName, partitions.Count);
             }
             
-            // ✅ FASE 4.2: Comprimir cada partición
+            // Comprimir cada partición
             foreach (var partitionPath in partitions)
             {
                 var compressedPath = await compressor.CompressIfNeededAsync(partitionPath);
@@ -319,7 +260,7 @@ namespace FarmacopilotAgent.Exporters
                     FilePath = compressedPath,
                     TableName = tableName,
                     ExportTimestamp = baseResult.ExportTimestamp,
-                    RowsExported = baseResult.RowsExported / partitions.Count, // Estimado
+                    RowsExported = baseResult.RowsExported / partitions.Count,
                     FileSizeBytes = new FileInfo(compressedPath).Length,
                     Sha256Hash = CalculateSha256(compressedPath),
                     ExportType = baseResult.ExportType,
@@ -336,17 +277,30 @@ namespace FarmacopilotAgent.Exporters
             return results;
         }
 
+        /// <summary>
+        /// Construye la query SELECT respetando el formato de cada BD
+        /// </summary>
         private string BuildRawQuery(
             string tableName, 
             string? incrementalColumn, 
             DateTime? lastExport)
         {
-            // Escapar nombre de tabla según BD - manejar espacios y caracteres especiales
+            bool isOracle = _connection.GetType().Name.Contains("Oracle");
             string escapedTable;
-            if (_connection.GetType().Name.Contains("Oracle"))
+            
+            if (isOracle)
             {
-                // Oracle: "TABLA" - mayúsculas, sin espacios
-                escapedTable = $"\"{tableName.ToUpper()}\"";
+                // Oracle: APPUL.AH_VENTAS o "APPUL"."AH_VENTAS"
+                // Si ya tiene esquema (contiene .), usarlo directamente
+                if (tableName.Contains("."))
+                {
+                    var parts = tableName.Split('.');
+                    escapedTable = $"{parts[0]}.{parts[1]}"; // APPUL.AH_VENTAS
+                }
+                else
+                {
+                    escapedTable = tableName;
+                }
             }
             else
             {
@@ -358,16 +312,19 @@ namespace FarmacopilotAgent.Exporters
 
             if (!string.IsNullOrEmpty(incrementalColumn) && lastExport.HasValue)
             {
-                var paramName = _connection.GetType().Name.Contains("Oracle") 
-                    ? ":lastExport"  // Oracle
-                    : "@lastExport"; // SQL Server
-
-                var escapedColumn = _connection.GetType().Name.Contains("Oracle")
-                    ? $"\"{incrementalColumn.ToUpper()}\""
-                    : $"[{incrementalColumn}]";
-
-                query += $" WHERE {escapedColumn} > {paramName}";
-                query += $" ORDER BY {escapedColumn} ASC";
+                if (isOracle)
+                {
+                    // Oracle usa :paramName y TO_DATE
+                    query += $" WHERE {incrementalColumn} > :lastExport";
+                    query += $" ORDER BY {incrementalColumn} ASC";
+                }
+                else
+                {
+                    // SQL Server usa @paramName
+                    var escapedColumn = $"[{incrementalColumn}]";
+                    query += $" WHERE {escapedColumn} > @lastExport";
+                    query += $" ORDER BY {escapedColumn} ASC";
+                }
             }
 
             return query;
@@ -385,10 +342,11 @@ namespace FarmacopilotAgent.Exporters
             if (lastExport.HasValue)
             {
                 var param = command.CreateParameter();
-                param.ParameterName = _connection.GetType().Name.Contains("Oracle") 
-                    ? "lastExport" 
-                    : "@lastExport";
+                bool isOracle = _connection.GetType().Name.Contains("Oracle");
+                
+                param.ParameterName = isOracle ? "lastExport" : "@lastExport";
                 param.Value = lastExport.Value;
+                param.DbType = DbType.DateTime;
                 command.Parameters.Add(param);
             }
 
@@ -397,7 +355,7 @@ namespace FarmacopilotAgent.Exporters
             var rowCount = 0;
             await using var writer = new StreamWriter(filePath, false, Encoding.UTF8);
 
-            // Escribir cabecera con nombres de columnas EXACTOS de la BD
+            // Escribir cabecera con nombres de columnas
             var columnNames = new List<string>();
             for (int i = 0; i < reader.FieldCount; i++)
             {
@@ -416,7 +374,9 @@ namespace FarmacopilotAgent.Exporters
                     var typeName = reader.GetDataTypeName(i).ToUpper();
                     if (typeName.Contains("BINARY") || 
                         typeName.Contains("BLOB") || 
-                        typeName.Contains("IMAGE"))
+                        typeName.Contains("IMAGE") ||
+                        typeName.Contains("RAW") ||
+                        typeName.Contains("LONG RAW"))
                     {
                         values[i] = "[BINARY_EXCLUDED]";
                         continue;
@@ -431,7 +391,7 @@ namespace FarmacopilotAgent.Exporters
                     }
                     
                     // Escape para CSV
-                    if (value.Contains(";") || value.Contains("\"") || value.Contains("\n"))
+                    if (value.Contains(";") || value.Contains("\"") || value.Contains("\n") || value.Contains("\r"))
                     {
                         value = $"\"{value.Replace("\"", "\"\"")}\"";
                     }
@@ -441,6 +401,12 @@ namespace FarmacopilotAgent.Exporters
 
                 await writer.WriteLineAsync(string.Join(";", values));
                 rowCount++;
+                
+                // Log progreso cada 100k registros
+                if (rowCount % 100000 == 0)
+                {
+                    _logger.Information("  Procesados {Rows:N0} registros...", rowCount);
+                }
             }
 
             return rowCount;
@@ -454,57 +420,10 @@ namespace FarmacopilotAgent.Exporters
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
 
-        // ✅ FASE 4.1: Métodos auxiliares para tracking de versiones CDC/Change Tracking
-        
-        private async Task<long> LoadLastScnAsync(string tableName)
-        {
-            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"scn_{tableName.Replace(" ", "_")}.txt");
-            if (File.Exists(trackingFile))
-            {
-                var content = await File.ReadAllTextAsync(trackingFile);
-                if (long.TryParse(content, out var scn))
-                {
-                    _logger.Debug("SCN anterior cargado para {Table}: {Scn}", tableName, scn);
-                    return scn;
-                }
-            }
-            
-            _logger.Debug("No hay SCN anterior para {Table}, iniciando desde 0", tableName);
-            return 0;
-        }
-
-        private async Task SaveLastScnAsync(string tableName, long scn)
-        {
-            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"scn_{tableName.Replace(" ", "_")}.txt");
-            await File.WriteAllTextAsync(trackingFile, scn.ToString());
-            _logger.Debug("SCN guardado para {Table}: {Scn}", tableName, scn);
-        }
-
-        private async Task<long> LoadLastChangeVersionAsync(string tableName)
-        {
-            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"ctversion_{tableName.Replace(" ", "_")}.txt");
-            if (File.Exists(trackingFile))
-            {
-                var content = await File.ReadAllTextAsync(trackingFile);
-                if (long.TryParse(content, out var version))
-                {
-                    _logger.Debug("Change Tracking version anterior cargada para {Table}: {Version}", 
-                        tableName, version);
-                    return version;
-                }
-            }
-            
-            _logger.Debug("No hay Change Tracking version anterior para {Table}, iniciando desde 0", 
-                tableName);
-            return 0;
-        }
-
-        private async Task SaveLastChangeVersionAsync(string tableName, long version)
-        {
-            var trackingFile = Path.Combine(@"C:\FarmacopilotAgent", $"ctversion_{tableName.Replace(" ", "_")}.txt");
-            await File.WriteAllTextAsync(trackingFile, version.ToString());
-            _logger.Debug("Change Tracking version guardada para {Table}: {Version}", 
-                tableName, version);
-        }
+        // Métodos auxiliares para CDC (simplificados - sin uso por ahora)
+        private async Task<long> LoadLastScnAsync(string tableName) => 0;
+        private async Task SaveLastScnAsync(string tableName, long scn) { }
+        private async Task<long> LoadLastChangeVersionAsync(string tableName) => 0;
+        private async Task SaveLastChangeVersionAsync(string tableName, long version) { }
     }
 }

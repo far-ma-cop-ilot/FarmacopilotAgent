@@ -66,6 +66,8 @@ namespace SetupWizardConsole
             Console.WriteLine($"    Base de datos: {erpInfo.DbType}");
             if (!string.IsNullOrEmpty(erpInfo.InstallPath))
                 Console.WriteLine($"    Ruta: {erpInfo.InstallPath}");
+            if (!string.IsNullOrEmpty(erpInfo.DbSchema))
+                Console.WriteLine($"    Esquema BD: {erpInfo.DbSchema}");
             Console.ResetColor();
             Console.WriteLine();
 
@@ -77,11 +79,13 @@ namespace SetupWizardConsole
 
             string connectionString = "";
             bool connectionOk = false;
-            string[] possibleDbNames = { "Farmatic", "FARMATIC", "CGCOF", "cgcof" };
 
-            // Primero intentar detectar BD con Windows Auth
             if (erpInfo.DbType == "sqlserver")
             {
+                // === SQL SERVER (FARMATIC) ===
+                string[] possibleDbNames = { "Farmatic", "FARMATIC", "CGCOF", "cgcof" };
+                
+                // Primero intentar Windows Auth
                 Console.WriteLine("Probando conexión con autenticación de Windows...");
                 foreach (var dbName in possibleDbNames)
                 {
@@ -99,23 +103,18 @@ namespace SetupWizardConsole
                     catch { }
                 }
                 
+                // Si no funciona, pedir credenciales
                 if (!connectionOk)
-                    Console.WriteLine("  [!] Windows Auth no disponible");
-            }
-
-            // Si no funciona, pedir credenciales y probar cada BD
-            if (!connectionOk)
-            {
-                Console.WriteLine();
-                Console.WriteLine("Se requieren credenciales de base de datos:");
-                Console.Write("  Usuario: ");
-                string username = Console.ReadLine() ?? "";
-                Console.Write("  Contraseña: ");
-                string password = ReadPassword();
-                Console.WriteLine();
-
-                if (erpInfo.DbType == "sqlserver")
                 {
+                    Console.WriteLine("  [!] Windows Auth no disponible");
+                    Console.WriteLine();
+                    Console.WriteLine("Se requieren credenciales de base de datos:");
+                    Console.Write("  Usuario: ");
+                    string username = Console.ReadLine() ?? "";
+                    Console.Write("  Contraseña: ");
+                    string password = ReadPassword();
+                    Console.WriteLine();
+
                     Console.WriteLine("Buscando base de datos...");
                     foreach (var dbName in possibleDbNames)
                     {
@@ -134,10 +133,84 @@ namespace SetupWizardConsole
                         catch { }
                     }
                 }
-                else
+            }
+            else if (erpInfo.DbType == "oracle")
+            {
+                // === ORACLE (NIXFARMA) ===
+                Console.WriteLine("Configurando conexión Oracle...");
+                Console.WriteLine();
+                
+                // Intentar primero con credenciales conocidas de Nixfarma
+                string[] defaultUsers = { "consu", "nixfarma", "nix", "system" };
+                string[] defaultPasswords = { "consu", "nixfarma", "nix", "manager" };
+                string[] tnsNames = { "NIXFARMA", "NIX", "XE", "ORCL" };
+                
+                // Si ya detectamos el TNS, usarlo primero
+                if (!string.IsNullOrEmpty(erpInfo.TnsName))
                 {
-                    connectionString = BuildConnectionString(erpInfo, username, password);
-                    connectionOk = TestOracleConnection(connectionString);
+                    tnsNames = new[] { erpInfo.TnsName }.Concat(tnsNames.Where(t => t != erpInfo.TnsName)).ToArray();
+                }
+                
+                Console.WriteLine("Probando conexiones conocidas de Nixfarma...");
+                
+                foreach (var tns in tnsNames)
+                {
+                    foreach (var user in defaultUsers)
+                    {
+                        var pass = defaultPasswords[Array.IndexOf(defaultUsers, user)];
+                        try
+                        {
+                            var testConn = $"Data Source={tns};User Id={user};Password={pass};";
+                            Console.Write($"  Probando {user}@{tns}... ");
+                            
+                            if (TestOracleConnectionAndSchema(testConn, out string? detectedSchema))
+                            {
+                                connectionString = testConn;
+                                connectionOk = true;
+                                erpInfo.DbSchema = detectedSchema ?? "APPUL";
+                                erpInfo.TnsName = tns;
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine($"[✓] Conectado! Esquema: {erpInfo.DbSchema}");
+                                Console.ResetColor();
+                                break;
+                            }
+                            else
+                            {
+                                Console.WriteLine("[✗]");
+                            }
+                        }
+                        catch
+                        {
+                            Console.WriteLine("[✗]");
+                        }
+                    }
+                    if (connectionOk) break;
+                }
+                
+                // Si no funciona, pedir credenciales manualmente
+                if (!connectionOk)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("  [!] No se pudo conectar automáticamente");
+                    Console.WriteLine();
+                    Console.WriteLine("Se requieren credenciales de Oracle:");
+                    Console.Write("  TNS Name (ej: NIXFARMA): ");
+                    string tnsName = Console.ReadLine() ?? "NIXFARMA";
+                    Console.Write("  Usuario: ");
+                    string username = Console.ReadLine() ?? "";
+                    Console.Write("  Contraseña: ");
+                    string password = ReadPassword();
+                    Console.WriteLine();
+
+                    connectionString = $"Data Source={tnsName};User Id={username};Password={password};";
+                    
+                    if (TestOracleConnectionAndSchema(connectionString, out string? schema))
+                    {
+                        connectionOk = true;
+                        erpInfo.DbSchema = schema ?? "APPUL";
+                        erpInfo.TnsName = tnsName;
+                        Console.WriteLine($"  [✓] Conectado! Esquema: {erpInfo.DbSchema}");
+                    }
                 }
             }
 
@@ -213,6 +286,9 @@ namespace SetupWizardConsole
                 Console.ResetColor();
                 Console.WriteLine();
                 Console.WriteLine($"Configuración guardada en: {InstallPath}\\config.json");
+                Console.WriteLine($"ERP: {erpInfo.ErpType} ({erpInfo.DbType})");
+                if (erpInfo.DbType == "oracle")
+                    Console.WriteLine($"Esquema: {erpInfo.DbSchema}");
                 Console.WriteLine();
                 Console.WriteLine("Próximo paso: Ejecutar FarmacopilotAgent.Runner.exe para");
                 Console.WriteLine("              exportar los datos a SharePoint.");
@@ -233,10 +309,117 @@ namespace SetupWizardConsole
             Console.WriteLine("Buscando ERPs instalados...");
             Console.WriteLine();
 
-            // === DETECTAR FARMATIC ===
-            Console.WriteLine("  Buscando Farmatic...");
+            // === DETECTAR NIXFARMA PRIMERO (Oracle) ===
+            Console.WriteLine("  Buscando Nixfarma (Oracle)...");
             
-            // Registry paths para Farmatic
+            // Registry paths para Nixfarma
+            string[] nixfarmaPaths = {
+                @"SOFTWARE\Pulso Informatica\Nixfarma",
+                @"SOFTWARE\WOW6432Node\Pulso Informatica\Nixfarma",
+                @"SOFTWARE\Pulso\Nixfarma",
+                @"SOFTWARE\WOW6432Node\Pulso\Nixfarma",
+                @"SOFTWARE\Nixfarma",
+                @"SOFTWARE\WOW6432Node\Nixfarma"
+            };
+
+            foreach (var path in nixfarmaPaths)
+            {
+                try
+                {
+                    using var key = Registry.LocalMachine.OpenSubKey(path);
+                    if (key != null)
+                    {
+                        Console.WriteLine($"    [✓] Registry: {path}");
+                        return new ErpInfo
+                        {
+                            ErpType = "Nixfarma",
+                            Version = key.GetValue("Version")?.ToString() ?? "9.1",
+                            DbType = "oracle",
+                            InstallPath = key.GetValue("InstallPath")?.ToString() ?? "",
+                            DetectionMethod = "registry",
+                            DbSchema = "APPUL"
+                        };
+                    }
+                }
+                catch { }
+            }
+
+            // Buscar carpetas de Nixfarma
+            string[] nixfarmaFilePaths = {
+                @"C:\Nixfarma",
+                @"C:\Program Files\Nixfarma",
+                @"C:\Program Files (x86)\Nixfarma",
+                @"C:\Program Files\Pulso Informatica\Nixfarma",
+                @"C:\Program Files (x86)\Pulso Informatica\Nixfarma",
+                @"D:\Nixfarma"
+            };
+            
+            foreach (var p in nixfarmaFilePaths)
+            {
+                if (Directory.Exists(p))
+                {
+                    Console.WriteLine($"    [✓] Carpeta encontrada: {p}");
+                    return new ErpInfo
+                    {
+                        ErpType = "Nixfarma",
+                        Version = "9.1",
+                        DbType = "oracle",
+                        InstallPath = p,
+                        DetectionMethod = "filesystem",
+                        DbSchema = "APPUL"
+                    };
+                }
+            }
+
+            // Buscar tnsnames.ora para Oracle
+            Console.WriteLine("    Buscando configuración Oracle (tnsnames.ora)...");
+            var tnsLocations = GetTnsNamesLocations();
+            foreach (var tnsPath in tnsLocations)
+            {
+                if (File.Exists(tnsPath))
+                {
+                    Console.WriteLine($"    [✓] tnsnames.ora encontrado: {tnsPath}");
+                    var tnsName = ParseTnsNamesForNixfarma(tnsPath);
+                    if (!string.IsNullOrEmpty(tnsName))
+                    {
+                        Console.WriteLine($"    [✓] TNS Entry NIXFARMA encontrado: {tnsName}");
+                        return new ErpInfo
+                        {
+                            ErpType = "Nixfarma",
+                            Version = "9.1",
+                            DbType = "oracle",
+                            DetectionMethod = "tnsnames",
+                            TnsName = tnsName,
+                            DbSchema = "APPUL"
+                        };
+                    }
+                }
+            }
+
+            // Intentar conexión directa a Oracle NIXFARMA
+            Console.WriteLine("    Probando conexión directa a Oracle NIXFARMA...");
+            try
+            {
+                var testConn = "Data Source=NIXFARMA;User Id=consu;Password=consu;";
+                if (TestOracleConnectionAndSchema(testConn, out string? schema))
+                {
+                    Console.WriteLine($"    [✓] Oracle NIXFARMA accesible (esquema: {schema})");
+                    return new ErpInfo
+                    {
+                        ErpType = "Nixfarma",
+                        Version = "9.1",
+                        DbType = "oracle",
+                        DetectionMethod = "database",
+                        TnsName = "NIXFARMA",
+                        DbSchema = schema ?? "APPUL"
+                    };
+                }
+            }
+            catch { }
+
+            // === DETECTAR FARMATIC (SQL Server) ===
+            Console.WriteLine("  Buscando Farmatic (SQL Server)...");
+            
             string[] farmaticPaths = {
                 @"SOFTWARE\Consoft\Farmatic",
                 @"SOFTWARE\WOW6432Node\Consoft\Farmatic",
@@ -265,7 +448,7 @@ namespace SetupWizardConsole
                 catch { }
             }
 
-            // Buscar SQL Server con base de datos Farmatic (puede llamarse CGCOF o Farmatic)
+            // Buscar SQL Server con base de datos Farmatic
             Console.WriteLine("    Buscando SQL Server con BD Farmatic...");
             var sqlInstances = GetSqlServerInstances();
             string[] possibleDbNames = { "Farmatic", "FARMATIC", "CGCOF", "cgcof" };
@@ -280,8 +463,7 @@ namespace SetupWizardConsole
                         using var conn = new SqlConnection(connStr);
                         conn.Open();
                         
-                        // Verificar tabla característica de Farmatic
-                        using var cmd = new SqlCommand("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ventas'", conn);
+                        using var cmd = new SqlCommand("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('Venta', 'ventas', 'Articu', 'articu')", conn);
                         var count = (int)cmd.ExecuteScalar();
                         if (count > 0)
                         {
@@ -301,63 +483,7 @@ namespace SetupWizardConsole
                 }
             }
 
-            // === DETECTAR NIXFARMA ===
-            Console.WriteLine("  Buscando Nixfarma...");
-            
-            string[] nixfarmaPaths = {
-                @"SOFTWARE\Pulso Informatica\Nixfarma",
-                @"SOFTWARE\WOW6432Node\Pulso Informatica\Nixfarma",
-                @"SOFTWARE\Nixfarma",
-                @"SOFTWARE\WOW6432Node\Nixfarma"
-            };
-
-            foreach (var path in nixfarmaPaths)
-            {
-                try
-                {
-                    using var key = Registry.LocalMachine.OpenSubKey(path);
-                    if (key != null)
-                    {
-                        Console.WriteLine($"    [✓] Registry: {path}");
-                        return new ErpInfo
-                        {
-                            ErpType = "Nixfarma",
-                            Version = key.GetValue("Version")?.ToString() ?? "9.1",
-                            DbType = "oracle",
-                            InstallPath = key.GetValue("InstallPath")?.ToString() ?? "",
-                            DetectionMethod = "registry"
-                        };
-                    }
-                }
-                catch { }
-            }
-
-            // Buscar Oracle con tablas de Nixfarma
-            Console.WriteLine("    Buscando Oracle con BD Nixfarma...");
-            try
-            {
-                var oracleConnStr = "Data Source=NIXFARMA;User Id=/;";
-                using var conn = new OracleConnection(oracleConnStr);
-                conn.Open();
-                
-                using var cmd = new OracleCommand("SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = 'AH_VENTAS'", conn);
-                var count = Convert.ToInt32(cmd.ExecuteScalar());
-                if (count > 0)
-                {
-                    Console.WriteLine($"    [✓] Oracle: NIXFARMA");
-                    return new ErpInfo
-                    {
-                        ErpType = "Nixfarma",
-                        Version = "9.1",
-                        DbType = "oracle",
-                        DetectionMethod = "database"
-                    };
-                }
-            }
-            catch { }
-
-            // Buscar archivos en rutas conocidas
-            Console.WriteLine("  Buscando en rutas comunes...");
+            // Buscar carpetas de Farmatic
             string[] farmaticFilePaths = {
                 @"C:\Program Files\Consoft\Farmatic",
                 @"C:\Program Files (x86)\Consoft\Farmatic",
@@ -379,29 +505,105 @@ namespace SetupWizardConsole
                 }
             }
 
-            string[] nixfarmaFilePaths = {
-                @"C:\Program Files\Pulso Informatica\Nixfarma",
-                @"C:\Program Files (x86)\Pulso Informatica\Nixfarma",
-                @"C:\Nixfarma"
-            };
-            foreach (var p in nixfarmaFilePaths)
-            {
-                if (Directory.Exists(p))
-                {
-                    Console.WriteLine($"    [✓] Carpeta: {p}");
-                    return new ErpInfo
-                    {
-                        ErpType = "Nixfarma",
-                        Version = "9.1",
-                        DbType = "oracle",
-                        InstallPath = p,
-                        DetectionMethod = "filesystem"
-                    };
-                }
-            }
-
             Console.WriteLine("    [✗] No se encontró ningún ERP");
             return null;
+        }
+
+        static List<string> GetTnsNamesLocations()
+        {
+            var locations = new List<string>();
+
+            // Variable de entorno TNS_ADMIN
+            var tnsAdmin = Environment.GetEnvironmentVariable("TNS_ADMIN");
+            if (!string.IsNullOrEmpty(tnsAdmin))
+                locations.Add(Path.Combine(tnsAdmin, "tnsnames.ora"));
+
+            // Variable ORACLE_HOME
+            var oracleHome = Environment.GetEnvironmentVariable("ORACLE_HOME");
+            if (!string.IsNullOrEmpty(oracleHome))
+                locations.Add(Path.Combine(oracleHome, "network", "admin", "tnsnames.ora"));
+
+            // Rutas comunes de Oracle
+            string[] commonPaths = {
+                @"C:\Oracle\Ora11\NETWORK\ADMIN\tnsnames.ora",
+                @"C:\Oracle\Ora11Cli32\NETWORK\ADMIN\tnsnames.ora",
+                @"C:\orant\NET80\ADMIN\tnsnames.ora",
+                @"C:\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\11.2.0\dbhome_1\network\admin\tnsnames.ora",
+                @"C:\oracle\product\12.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\app\oracle\product\11.2.0\client_1\network\admin\tnsnames.ora",
+                @"C:\oraclexe\app\oracle\product\11.2.0\server\network\admin\tnsnames.ora"
+            };
+            locations.AddRange(commonPaths);
+
+            return locations.Where(p => !string.IsNullOrEmpty(p)).Distinct().ToList();
+        }
+
+        static string? ParseTnsNamesForNixfarma(string tnsPath)
+        {
+            try
+            {
+                var content = File.ReadAllText(tnsPath).ToUpper();
+                
+                // Buscar entradas relacionadas con Nixfarma
+                string[] searchTerms = { "NIXFARMA", "NIX", "FARMA" };
+                
+                foreach (var term in searchTerms)
+                {
+                    if (content.Contains(term))
+                    {
+                        // Buscar el nombre del TNS entry
+                        var lines = content.Split('\n');
+                        foreach (var line in lines)
+                        {
+                            var trimmed = line.Trim();
+                            if (trimmed.StartsWith(term) && trimmed.Contains("="))
+                            {
+                                return term;
+                            }
+                        }
+                        // Si no encontramos la línea exacta pero existe el término
+                        return term == "NIXFARMA" ? "NIXFARMA" : null;
+                    }
+                }
+            }
+            catch { }
+            
+            return null;
+        }
+
+        static bool TestOracleConnectionAndSchema(string connectionString, out string? detectedSchema)
+        {
+            detectedSchema = null;
+            try
+            {
+                using var conn = new OracleConnection(connectionString);
+                conn.Open();
+                
+                // Buscar el esquema que contiene tablas de Nixfarma
+                using var cmd = new OracleCommand(@"
+                    SELECT DISTINCT OWNER 
+                    FROM ALL_TABLES 
+                    WHERE TABLE_NAME IN ('AH_VENTAS', 'AH_VENTA_LINEAS', 'AB_ARTICULOS')
+                    AND OWNER NOT IN ('SYS', 'SYSTEM')
+                    AND ROWNUM = 1", conn);
+                
+                var result = cmd.ExecuteScalar();
+                if (result != null)
+                {
+                    detectedSchema = result.ToString();
+                    return true;
+                }
+                
+                // Si no encuentra las tablas, al menos la conexión funciona
+                // Asumir APPUL como esquema por defecto
+                detectedSchema = "APPUL";
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         static List<string> GetSqlServerInstances()
@@ -427,28 +629,6 @@ namespace SetupWizardConsole
             return instances.Distinct().ToList();
         }
 
-        static string BuildConnectionString(ErpInfo erp, string? username = null, string? password = null)
-        {
-            if (erp.DbType == "sqlserver")
-            {
-                var server = erp.DbInstance ?? "localhost";
-                var database = erp.DbName ?? "Farmatic";  // Cambiado de CGCOF a Farmatic como default
-                
-                if (string.IsNullOrEmpty(username))
-                    return $"Server={server};Database={database};Integrated Security=true;TrustServerCertificate=true;";
-                else
-                    return $"Server={server};Database={database};User Id={username};Password={password};TrustServerCertificate=true;";
-            }
-            else // Oracle
-            {
-                var dataSource = erp.DbName ?? "NIXFARMA";
-                if (string.IsNullOrEmpty(username))
-                    return $"Data Source={dataSource};User Id=/;";
-                else
-                    return $"Data Source={dataSource};User Id={username};Password={password};";
-            }
-        }
-
         static bool TestSqlServerConnection(string connectionString)
         {
             try
@@ -459,35 +639,43 @@ namespace SetupWizardConsole
                 cmd.ExecuteScalar();
                 return true;
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"    [✗] Error: {ex.Message}");
-                return false;
-            }
-        }
-
-        static bool TestOracleConnection(string connectionString)
-        {
-            try
-            {
-                using var conn = new OracleConnection(connectionString);
-                conn.Open();
-                using var cmd = new OracleCommand("SELECT 1 FROM DUAL", conn);
-                cmd.ExecuteScalar();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"    [✗] Error: {ex.Message}");
                 return false;
             }
         }
 
         static Dictionary<string, object> CreateConfig(string farmaciaId, ErpInfo erp, string connectionString)
         {
-            // NOMBRES REALES de tablas en BD Farmatic (PascalCase, esquema dbo)
-            var tables = erp.ErpType == "Farmatic" 
-                ? new List<object>
+            List<object> tables;
+            
+            if (erp.ErpType == "Nixfarma")
+            {
+                // Tablas Nixfarma con esquema APPUL
+                var schema = erp.DbSchema ?? "APPUL";
+                tables = new List<object>
+                {
+                    new { TableName = $"{schema}.AH_VENTAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10, Notes = "Cabecera de ventas" },
+                    new { TableName = $"{schema}.AH_VENTA_LINEAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10, Notes = "Detalle de ventas" },
+                    new { TableName = $"{schema}.AB_ARTICULOS", IncrementalColumn = (string?)null, Enabled = true, Priority = 50, Notes = "Maestro de artículos" },
+                    new { TableName = $"{schema}.AB_LABORATORIOS", IncrementalColumn = (string?)null, Enabled = true, Priority = 60, Notes = "Maestro de laboratorios" },
+                    new { TableName = $"{schema}.AD_PROVEEDORES", IncrementalColumn = (string?)null, Enabled = true, Priority = 60, Notes = "Maestro de proveedores" },
+                    new { TableName = $"{schema}.AB_FAMILIAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Familias de artículos" },
+                    new { TableName = $"{schema}.AE_RECETAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 30, Notes = "Recetas" },
+                    new { TableName = $"{schema}.AE_RECE_LINEAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 30, Notes = "Lineas de recetas" },
+                    new { TableName = $"{schema}.AC_EXISTENCIAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 40, Notes = "Stock/Existencias" },
+                    new { TableName = $"{schema}.AD_ALBARANES", IncrementalColumn = "FECHA", Enabled = true, Priority = 50, Notes = "Albaranes de compra" },
+                    new { TableName = $"{schema}.AD_LINALBARAN", IncrementalColumn = (string?)null, Enabled = true, Priority = 50, Notes = "Lineas de albaran" },
+                    new { TableName = $"{schema}.AG_CLIENTES", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Maestro de clientes" },
+                    new { TableName = $"{schema}.AB_SUBFAMILIAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Subfamilias de artículos" },
+                    new { TableName = $"{schema}.AH_FACTURAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 40, Notes = "Facturas" },
+                    new { TableName = $"{schema}.AH_FACTURA_LINEAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 40, Notes = "Lineas de factura" }
+                };
+            }
+            else
+            {
+                // Tablas Farmatic (SQL Server)
+                tables = new List<object>
                 {
                     new { TableName = "Venta", IncrementalColumn = (string?)null, Enabled = true, Priority = 10, Notes = "Cabecera de ventas" },
                     new { TableName = "LineaVenta", IncrementalColumn = (string?)null, Enabled = true, Priority = 10, Notes = "Detalle de ventas" },
@@ -504,20 +692,8 @@ namespace SetupWizardConsole
                     new { TableName = "Estarti", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Estadísticas de artículos" },
                     new { TableName = "Familia", IncrementalColumn = (string?)null, Enabled = true, Priority = 70, Notes = "Familias de artículos" },
                     new { TableName = "Lote", IncrementalColumn = (string?)null, Enabled = true, Priority = 80, Notes = "Lotes de artículos" }
-                }
-                : new List<object>
-                {
-                    new { TableName = "AH_VENTAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10 },
-                    new { TableName = "AH_VENTA_LINEAS", IncrementalColumn = "FECHA", Enabled = true, Priority = 10 },
-                    new { TableName = "AB_ARTICULOS_FICHA_E", IncrementalColumn = (string?)null, Enabled = true, Priority = 50 },
-                    new { TableName = "AB_LABORATORIOS", IncrementalColumn = (string?)null, Enabled = true, Priority = 60 },
-                    new { TableName = "AD_PROVEEDORES", IncrementalColumn = (string?)null, Enabled = true, Priority = 60 },
-                    new { TableName = "AB_FAMILIAS", IncrementalColumn = (string?)null, Enabled = true, Priority = 70 },
-                    new { TableName = "AD_PED_DEV", IncrementalColumn = "FECHA", Enabled = true, Priority = 70 },
-                    new { TableName = "AE_ENTIDADES", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "AE_TIPOS", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 },
-                    new { TableName = "AB_DOM_VALOR_BD", IncrementalColumn = (string?)null, Enabled = true, Priority = 80 }
                 };
+            }
 
             return new Dictionary<string, object>
             {
@@ -531,7 +707,11 @@ namespace SetupWizardConsole
                 ["TablesToExport"] = tables,
                 ["ExportSchedule"] = "03:00",
                 ["LastInstallTs"] = DateTime.UtcNow.ToString("o"),
-                ["AgentVersion"] = "1.0.0"
+                ["AgentVersion"] = "1.0.0",
+                ["ErpInstallPath"] = erp.InstallPath ?? "",
+                ["DetectionMethod"] = erp.DetectionMethod,
+                ["DatabaseName"] = erp.DbType == "oracle" ? (erp.TnsName ?? "NIXFARMA") : (erp.DbName ?? "Farmatic"),
+                ["DbSchema"] = erp.DbSchema ?? ""
             };
         }
 
@@ -587,5 +767,7 @@ namespace SetupWizardConsole
         public string DetectionMethod { get; set; } = "";
         public string? DbInstance { get; set; }
         public string? DbName { get; set; }
+        public string? TnsName { get; set; }
+        public string? DbSchema { get; set; }
     }
 }

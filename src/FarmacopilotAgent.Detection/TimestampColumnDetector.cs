@@ -9,6 +9,7 @@ namespace FarmacopilotAgent.Detection
 {
     /// <summary>
     /// Detecta automáticamente columnas apropiadas para extracción incremental
+    /// Soporta Oracle (con esquemas como APPUL.tabla) y SQL Server
     /// </summary>
     public class TimestampColumnDetector
     {
@@ -18,7 +19,8 @@ namespace FarmacopilotAgent.Detection
         {
             "FECHA", "FECHA_VENTA", "FECHA_MODIFICACION", "FECHA_CREACION",
             "FECHA_ALTA", "FECHA_ULT_MOD", "TIMESTAMP", "CREATED_AT", "UPDATED_AT",
-            "LASTMODIFIED", "LAST_UPDATE", "FECHA_RECEP", "FECHA_PEDIDO"
+            "LASTMODIFIED", "LAST_UPDATE", "FECHA_RECEP", "FECHA_PEDIDO",
+            "FECHAHORA", "FECHA_HORA", "FEC_ALTA", "FEC_MOD"
         };
 
         public TimestampColumnDetector(ILogger logger)
@@ -35,9 +37,15 @@ namespace FarmacopilotAgent.Detection
         {
             try
             {
-                _logger.Information("Detectando columna timestamp para {Table}", tableName);
+                _logger.Debug("Detectando columna timestamp para {Table}", tableName);
                 
                 var columns = await GetTableColumnsAsync(connection, tableName);
+                
+                if (columns.Count == 0)
+                {
+                    _logger.Warning("No se encontraron columnas para {Table}", tableName);
+                    return null;
+                }
                 
                 // 1. Buscar columnas con nombres conocidos de timestamp
                 var timestampColumn = columns
@@ -48,7 +56,7 @@ namespace FarmacopilotAgent.Detection
                 
                 if (timestampColumn != null)
                 {
-                    _logger.Information("Columna timestamp detectada: {Column} (tipo: {Type})", 
+                    _logger.Debug("Columna timestamp detectada: {Column} (tipo: {Type})", 
                         timestampColumn.Name, timestampColumn.DataType);
                     return timestampColumn.Name;
                 }
@@ -60,17 +68,17 @@ namespace FarmacopilotAgent.Detection
                 
                 if (dateColumn != null)
                 {
-                    _logger.Information("Columna fecha detectada: {Column} (tipo: {Type})", 
+                    _logger.Debug("Columna fecha detectada: {Column} (tipo: {Type})", 
                         dateColumn.Name, dateColumn.DataType);
                     return dateColumn.Name;
                 }
                 
-                _logger.Warning("No se encontró columna timestamp apropiada en {Table}", tableName);
+                _logger.Debug("No se encontró columna timestamp apropiada en {Table}", tableName);
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Error detectando columna timestamp en {Table}", tableName);
+                _logger.Warning(ex, "Error detectando columna timestamp en {Table}", tableName);
                 return null;
             }
         }
@@ -80,18 +88,45 @@ namespace FarmacopilotAgent.Detection
             string tableName)
         {
             var columns = new List<ColumnInfo>();
+            bool isOracle = connection.GetType().Name.Contains("Oracle");
             
             string query;
-            if (connection.GetType().Name.Contains("Oracle"))
+            string schemaName = "";
+            string simpleTableName = tableName;
+            
+            // Separar esquema de nombre de tabla si existe (APPUL.AH_VENTAS -> APPUL, AH_VENTAS)
+            if (tableName.Contains("."))
             {
-                // Oracle
-                query = @"
-                    SELECT 
-                        COLUMN_NAME,
-                        DATA_TYPE
-                    FROM USER_TAB_COLUMNS
-                    WHERE TABLE_NAME = :tableName
-                    ORDER BY COLUMN_ID";
+                var parts = tableName.Split('.');
+                schemaName = parts[0].ToUpper();
+                simpleTableName = parts[1].ToUpper();
+            }
+            
+            if (isOracle)
+            {
+                if (!string.IsNullOrEmpty(schemaName))
+                {
+                    // Oracle con esquema específico
+                    query = @"
+                        SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE
+                        FROM ALL_TAB_COLUMNS
+                        WHERE OWNER = :schemaName
+                          AND TABLE_NAME = :tableName
+                        ORDER BY COLUMN_ID";
+                }
+                else
+                {
+                    // Oracle sin esquema (usa USER_TAB_COLUMNS)
+                    query = @"
+                        SELECT 
+                            COLUMN_NAME,
+                            DATA_TYPE
+                        FROM USER_TAB_COLUMNS
+                        WHERE TABLE_NAME = :tableName
+                        ORDER BY COLUMN_ID";
+                }
             }
             else
             {
@@ -108,22 +143,47 @@ namespace FarmacopilotAgent.Detection
             await using var command = connection.CreateCommand();
             command.CommandText = query;
             
-            var param = command.CreateParameter();
-            param.ParameterName = connection.GetType().Name.Contains("Oracle") 
-                ? "tableName" 
-                : "@tableName";
-            param.Value = tableName.ToUpper();
-            command.Parameters.Add(param);
-            
-            await using var reader = await command.ExecuteReaderAsync();
-            
-            while (await reader.ReadAsync())
+            if (isOracle)
             {
-                columns.Add(new ColumnInfo
+                // Parámetro tableName
+                var tableParam = command.CreateParameter();
+                tableParam.ParameterName = "tableName";
+                tableParam.Value = simpleTableName.ToUpper();
+                command.Parameters.Add(tableParam);
+                
+                // Parámetro schemaName si existe
+                if (!string.IsNullOrEmpty(schemaName))
                 {
-                    Name = reader.GetString(0),
-                    DataType = reader.GetString(1)
-                });
+                    var schemaParam = command.CreateParameter();
+                    schemaParam.ParameterName = "schemaName";
+                    schemaParam.Value = schemaName;
+                    command.Parameters.Add(schemaParam);
+                }
+            }
+            else
+            {
+                var param = command.CreateParameter();
+                param.ParameterName = "@tableName";
+                param.Value = simpleTableName;
+                command.Parameters.Add(param);
+            }
+            
+            try
+            {
+                await using var reader = await command.ExecuteReaderAsync();
+                
+                while (await reader.ReadAsync())
+                {
+                    columns.Add(new ColumnInfo
+                    {
+                        Name = reader.GetString(0),
+                        DataType = reader.GetString(1)
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning("Error obteniendo columnas de {Table}: {Error}", tableName, ex.Message);
             }
             
             return columns;
@@ -133,9 +193,9 @@ namespace FarmacopilotAgent.Detection
         {
             var upper = columnName.ToUpper();
             
-            if (upper.Contains("MODIFICACION") || upper.Contains("UPDATED")) return 10;
-            if (upper.Contains("CREACION") || upper.Contains("CREATED")) return 9;
-            if (upper.Contains("VENTA") || upper.Contains("FECHA")) return 8;
+            if (upper.Contains("MODIFICACION") || upper.Contains("UPDATED") || upper.Contains("ULT_MOD")) return 10;
+            if (upper.Contains("CREACION") || upper.Contains("CREATED") || upper.Contains("ALTA")) return 9;
+            if (upper.Contains("VENTA") || upper == "FECHA" || upper == "FECHAHORA") return 8;
             if (upper.Contains("RECEP") || upper.Contains("PEDIDO")) return 7;
             
             return 5;
